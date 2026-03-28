@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工程款項管理系統 - 現代化美觀版 (雲端同步)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', 'Noto Sans TC', sans-serif; background-color: #f1f5f9; color: #334155; }
+        .animate-fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        [v-cloak] { display: none; }
+        select { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 1rem center; background-size: 1.2em; padding-right: 2.5rem !important; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="p-0 m-0 text-slate-800 antialiased">
+    <div id="app" v-cloak class="min-h-screen flex flex-col">
+        <nav class="bg-white/80 backdrop-blur-md border-b border-slate-200/60 sticky top-0 z-40">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-16 items-center">
+                <div class="flex items-center gap-3">
+                    <div class="bg-gradient-to-br from-blue-600 to-indigo-600 p-2 rounded-xl text-white shadow-sm flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="15" rx="1"/></svg>
+                    </div>
+                    <span class="font-bold text-xl tracking-tight text-slate-900 flex items-center gap-2">
+                        工程帳務中心
+                        <span v-if="!isLoading" class="text-[10px] font-bold px-2 py-0.5 rounded-full transition-all" :class="isCloudSynced ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'">
+                            {{ isCloudSynced ? '雲端已同步' : '同步中...' }}
+                        </span>
+                    </span>
+                </div>
+                <div class="flex items-center gap-5">
+                    <div class="flex bg-slate-100/80 p-1 rounded-xl shadow-inner border border-slate-200/50">
+                        <button @click="currentViewMain = 'project_view'" :class="currentViewMain === 'project_view' ? 'bg-white text-blue-600 shadow-sm rounded-lg' : 'text-slate-500 hover:text-slate-700'" class="px-4 py-1.5 text-sm font-semibold transition-all duration-200">
+                            專案帳務
+                        </button>
+                        <button @click="currentViewMain = 'contractor_view'; selectedProjectId = null; view = 'list'" :class="currentViewMain === 'contractor_view' ? 'bg-white text-blue-600 shadow-sm rounded-lg' : 'text-slate-500 hover:text-slate-700'" class="px-4 py-1.5 text-sm font-semibold transition-all duration-200">
+                            工班管理
+                        </button>
+                    </div>
+                    <div class="relative hidden lg:block" v-if="view === 'list' && currentViewMain === 'project_view'">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input type="text" v-model="searchTerm" placeholder="搜尋案場或代碼..." class="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all w-64 outline-none placeholder-slate-400 shadow-sm">
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8">
+            
+            <div v-if="isLoading" class="flex flex-col items-center justify-center py-24 animate-fade-in">
+                <svg class="animate-spin h-10 w-10 text-blue-600 mb-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <h2 class="text-xl font-bold text-slate-800">連線至雲端資料庫...</h2>
+                <p class="text-sm text-slate-500 mt-2 font-medium">請稍候，正在同步您的工程帳務資料</p>
+            </div>
+
+            <div v-else class="w-full">
+                <div v-if="currentViewMain === 'project_view'">
+                    <div v-if="view === 'list'" class="animate-fade-in">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                            <div>
+                                <h2 class="text-2xl font-bold text-slate-900 tracking-tight">專案總覽</h2>
+                                <p class="text-slate-500 text-sm mt-1">掌握所有進行中與已完工的案場財務狀況</p>
+                            </div>
+                            <button @click="openAddProjectModal" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-blue-700 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm transition-all">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                建立新施工案場
+                            </button>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div v-for="project in enhancedFilteredProjects" :key="project.id" @click="openProject(project.id)" 
+                                class="bg-white group rounded-3xl p-6 border border-slate-200 hover:border-blue-200 shadow-sm hover:shadow-xl hover:shadow-blue-900/5 transition-all duration-300 cursor-pointer relative flex flex-col h-full overflow-hidden">
+                                
+                                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r" :class="project.cashFlow >= 0 ? 'from-emerald-400 to-teal-400' : 'from-red-400 to-rose-400'"></div>
+                                
+                                <button @click.stop="openDeleteModal('project', project.id, project.name)" class="absolute top-5 right-5 p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200" title="刪除專案">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                </button>
+
+                                <div class="mb-4">
+                                    <span class="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wide uppercase mb-3" :class="project.status === '進行中' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'">
+                                        {{ project.status }}
+                                    </span>
+                                    <h3 class="text-xl font-bold mb-1 line-clamp-1 text-slate-900 group-hover:text-blue-600 transition-colors">{{ project.name }}</h3>
+                                    <p class="text-slate-400 text-xs font-medium">{{ project.code }}</p>
+                                </div>
+                                
+                                <div class="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 mt-auto">
+                                    <div class="flex justify-between items-center mb-3">
+                                        <span class="text-xs font-medium text-slate-500">業主總報價</span>
+                                        <span class="font-bold text-slate-800 tracking-tight">NT$ {{ formatNum(project.clientTotal) }}</span>
+                                    </div>
+                                    <div class="w-full h-px bg-slate-200/60 mb-3"></div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-xs font-medium text-slate-500">現金流狀態</span>
+                                        <div v-if="project.cashFlow >= 0" class="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-lg text-emerald-700">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                            <span class="text-sm font-bold tracking-tight">+{{ formatNum(project.cashFlow) }}</span>
+                                        </div>
+                                        <div v-else class="flex items-center gap-1.5 px-2.5 py-1 bg-red-50 rounded-lg text-red-600">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                                            <span class="text-sm font-bold tracking-tight">{{ formatNum(Math.abs(project.cashFlow)) }} (墊款)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div @click="openAddProjectModal" class="bg-transparent border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-3xl p-6 flex flex-col items-center justify-center text-center cursor-pointer group transition-all duration-300 min-h-[260px]">
+                                <div class="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white transition-all duration-300">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                </div>
+                                <h3 class="text-base font-bold text-slate-700 group-hover:text-blue-600">新增施工案場</h3>
+                                <p class="text-sm text-slate-400 mt-1">點擊以建立新的財務追蹤專案</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-else class="animate-fade-in">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 bg-white p-3 pr-4 rounded-2xl shadow-sm border border-slate-200">
+                            <button @click="view = 'list'; selectedProjectId = null" class="flex items-center gap-2 px-3 py-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl font-medium transition-all text-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                                返回專案總覽
+                            </button>
+                            <div class="flex gap-2 w-full sm:w-auto pl-3 sm:pl-0 border-t sm:border-t-0 border-slate-100 pt-3 sm:pt-0">
+                                <button @click="toggleProjectStatus" class="flex-1 sm:flex-none border border-slate-200 bg-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-slate-50 hover:border-slate-300 transition-all text-slate-700 shadow-sm">
+                                    <svg v-if="currentProject.status === '進行中'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-500"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-500"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.59-9.21l-5.42-5.42"></path></svg>
+                                    {{ currentProject.status === '進行中' ? '標記為已完工' : '重啟案場' }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col lg:flex-row gap-8">
+                            
+                            <div class="lg:w-1/3">
+                                <div class="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-200 relative overflow-hidden h-fit sticky top-24 z-20 flex flex-col gap-6">
+                                    
+                                    <div>
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <span class="inline-flex items-center justify-center px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase bg-slate-100 text-slate-500">
+                                                {{ currentProject.status }}
+                                            </span>
+                                            <p class="text-slate-400 text-xs font-medium">{{ currentProject.code }}</p>
+                                        </div>
+                                        <h2 class="text-2xl font-bold text-slate-900 leading-tight">{{ currentProject.name }}</h2>
+                                    </div>
+
+                                    <div class="p-5 rounded-3xl shadow-md text-white relative overflow-hidden" :class="cashFlow >= 0 ? 'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-900/10' : 'bg-gradient-to-br from-red-500 to-rose-600 shadow-red-900/10'">
+                                        <svg class="absolute -right-4 -bottom-4 opacity-20 w-32 h-32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path v-if="cashFlow >= 0" d="M16 12l-4-4-4 4M12 8v8"/><path v-else d="M8 12l4 4 4-4M12 16V8"/></svg>
+                                        
+                                        <div class="relative z-10">
+                                            <p class="text-sm font-medium mb-1 text-white/90">目前現金結餘 (已收 - 已付)</p>
+                                            <div class="flex items-end gap-2">
+                                                <p class="text-3xl font-extrabold tracking-tight">
+                                                    {{ cashFlow >= 0 ? '+ NT$ ' + formatNum(cashFlow) : '- NT$ ' + formatNum(Math.abs(cashFlow)) }}
+                                                </p>
+                                            </div>
+                                            <div class="mt-3">
+                                                <span v-if="cashFlow < 0" class="text-[11px] font-bold bg-white/20 px-2.5 py-1 rounded-lg backdrop-blur-sm flex items-center w-fit gap-1.5">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                                                    墊款中，請追蹤收款
+                                                </span>
+                                                <span v-else class="text-[11px] font-bold bg-white/20 px-2.5 py-1 rounded-lg backdrop-blur-sm flex items-center w-fit gap-1.5">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                                    現金流健康
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="bg-slate-50 border border-slate-100 p-5 rounded-3xl">
+                                        <div class="flex justify-between items-center mb-1">
+                                            <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">業主總報價 (合約款)</p>
+                                            <button @click="openEditClientTotalModal" class="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="修改總價">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                                            </button>
+                                        </div>
+                                        <p class="text-2xl font-extrabold text-slate-800 mb-4 tracking-tight">NT$ {{ formatNum(currentProject.clientTotal) }}</p>
+                                        
+                                        <div class="grid grid-cols-2 gap-2 mb-4">
+                                            <div class="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
+                                                <p class="text-[10px] text-slate-400 font-bold mb-1 uppercase">已收金額</p>
+                                                <p class="text-sm font-bold text-emerald-600">NT$ {{ formatNum(clientStats.totalPaid) }}</p>
+                                            </div>
+                                            <div class="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
+                                                <p class="text-[10px] text-slate-400 font-bold mb-1 uppercase">剩餘未收</p>
+                                                <p class="text-sm font-bold text-orange-500">NT$ {{ formatNum((currentProject.clientTotal || 0) - clientStats.totalPaid) }}</p>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div class="flex justify-between text-xs mb-1.5">
+                                                <span class="text-slate-500 font-medium">整體收款進度</span>
+                                                <span class="text-emerald-600 font-bold">{{ clientStats.percent }}%</span>
+                                            </div>
+                                            <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                                                <div class="h-full bg-emerald-500 transition-all duration-1000 rounded-full relative overflow-hidden" :style="{ width: clientStats.percent + '%' }">
+                                                    <div class="absolute inset-0 bg-white/20" style="background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent); background-size: 1rem 1rem;"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="bg-slate-50 border border-slate-100 p-5 rounded-3xl">
+                                        <p class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">發包總預算 (應付成本)</p>
+                                        <p class="text-2xl font-extrabold text-slate-800 mb-4 tracking-tight">NT$ {{ formatNum(projectStats.totalQuote) }}</p>
+                                        
+                                        <div class="grid grid-cols-2 gap-2 mb-4">
+                                            <div class="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
+                                                <p class="text-[10px] text-slate-400 font-bold mb-1 uppercase">已付工班</p>
+                                                <p class="text-sm font-bold text-blue-600">NT$ {{ formatNum(projectStats.totalPaid) }}</p>
+                                            </div>
+                                            <div class="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
+                                                <p class="text-[10px] text-slate-400 font-bold mb-1 uppercase">應付尾款</p>
+                                                <p class="text-sm font-bold text-slate-600">NT$ {{ formatNum(projectStats.totalQuote - projectStats.totalPaid) }}</p>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div class="flex justify-between text-xs mb-1.5">
+                                                <span class="text-slate-500 font-medium">款項支付進度</span>
+                                                <span class="text-blue-600 font-bold">{{ projectStats.percent }}%</span>
+                                            </div>
+                                            <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                                                <div class="h-full bg-blue-500 transition-all duration-1000 rounded-full" :style="{ width: projectStats.percent + '%' }"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+
+                            <div class="lg:w-2/3 space-y-8">
+                                
+                                <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+                                    <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+                                        <div>
+                                            <h3 class="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                                <div class="bg-emerald-100 text-emerald-600 p-1.5 rounded-lg">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                                                </div>
+                                                業主收款明細
+                                            </h3>
+                                            <p class="text-xs text-slate-400 mt-1 pl-9">記錄所有從業主端收到的匯款或現金</p>
+                                        </div>
+                                        <button @click="openClientPaymentModal" class="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all active:scale-95">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                            登錄收款
+                                        </button>
+                                    </div>
+                                    <div class="p-6 bg-slate-50/50">
+                                        <div class="space-y-3">
+                                            <div v-for="pay in currentClientPayments" :key="pay.id" class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white border border-slate-200 rounded-2xl hover:shadow-md hover:border-emerald-200 transition-all duration-200 group gap-4">
+                                                <div class="flex items-start gap-4 w-full sm:w-auto">
+                                                    <div class="bg-slate-50 border border-slate-100 rounded-xl p-2 text-center min-w-[60px]">
+                                                        <span class="block text-xs text-slate-400 font-bold uppercase">{{ pay.date.split('-')[1] }}月</span>
+                                                        <span class="block text-lg font-black text-slate-700 leading-none">{{ pay.date.split('-')[2] }}</span>
+                                                    </div>
+                                                    <div class="flex flex-col justify-center py-1">
+                                                        <span class="text-slate-800 font-bold text-base">{{ pay.note || '無備註項目' }}</span>
+                                                        <span class="text-slate-400 text-xs mt-0.5">收款日期：{{ pay.date }}</span>
+                                                    </div>
+                                                </div>
+                                                <div class="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                                                    <span class="font-black text-emerald-600 text-lg tracking-tight">NT$ {{ formatNum(pay.amount) }}</span>
+                                                    <button @click="openDeleteModal('clientPayment', pay.id, pay.note || '此筆收款記錄', selectedProjectId)" class="text-slate-300 hover:text-red-500 p-2 hover:bg-red-50 rounded-xl transition-colors" title="刪除">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div v-if="!currentClientPayments.length" class="text-center py-12 text-slate-400 bg-white rounded-2xl border-2 border-dashed border-slate-200">
+                                                <div class="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                                                </div>
+                                                <p class="text-sm font-medium">尚未登錄任何業主收款紀錄</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+                                    <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+                                        <div>
+                                            <h3 class="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                                <div class="bg-blue-100 text-blue-600 p-1.5 rounded-lg">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                                                </div>
+                                                工程發包與付款管理
+                                            </h3>
+                                            <p class="text-xs text-slate-400 mt-1 pl-9">追蹤所有發包給工班的工項及付款進度</p>
+                                        </div>
+                                        <button @click="openAddItem('add')" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-700 shadow-sm transition-all active:scale-95">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                            新增工項
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="divide-y divide-slate-100">
+                                        <div v-for="item in currentItems" :key="item.id" class="transition-all duration-300" :class="expandedItem === item.id ? 'bg-slate-50/50' : ''">
+                                            <div class="p-5 sm:p-6 flex flex-wrap lg:flex-nowrap items-center justify-between cursor-pointer hover:bg-slate-50/80 transition-colors" @click="toggleItemExpand(item.id)">
+                                                <div class="w-full lg:w-5/12 mb-4 lg:mb-0">
+                                                    <div class="flex items-center gap-2.5 mb-2">
+                                                        <span class="text-[11px] font-bold px-2 py-0.5 rounded border tracking-wide" :class="getCategory(item.categoryId).color">
+                                                            {{ getCategory(item.categoryId).name }}
+                                                        </span>
+                                                        <h4 class="font-bold text-slate-800 text-base">{{ item.name }}</h4>
+                                                    </div>
+                                                    <div class="flex items-center gap-3 text-sm">
+                                                        <div class="flex items-center gap-1.5 text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                                                            <span class="font-medium text-slate-600">{{ getContractorName(item.contractorId) }}</span>
+                                                        </div>
+                                                        <span class="text-slate-400 text-xs font-medium">總價 NT$ {{ formatNum(item.total) }}</span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="w-1/2 lg:w-3/12 pr-4">
+                                                    <div class="text-[11px] text-slate-400 font-bold uppercase mb-1">應付尾款</div>
+                                                    <span class="font-black text-lg tracking-tight" :class="isOverpaid(item) ? 'text-red-500' : (getItemBalance(item) === 0 ? 'text-emerald-500' : 'text-slate-700')">
+                                                        NT$ {{ formatNum(getItemBalance(item)) }}
+                                                    </span>
+                                                </div>
+                                                
+                                                <div class="w-1/2 lg:w-3/12 pr-4 lg:pr-8">
+                                                    <div class="flex justify-between mb-1.5 items-end">
+                                                        <span class="text-[11px] text-slate-400 font-bold uppercase">已付比例</span>
+                                                        <span class="text-sm font-black text-slate-700">{{ getItemPercent(item) }}%</span>
+                                                    </div>
+                                                    <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                                                        <div class="h-full transition-all duration-700 rounded-full" :class="isOverpaid(item) ? 'bg-red-500' : (getItemPercent(item) === 100 ? 'bg-emerald-500' : 'bg-blue-500')" :style="{ width: getItemPercent(item) + '%' }"></div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="flex items-center gap-1 z-10 w-full lg:w-auto justify-end mt-4 lg:mt-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-slate-100" @click.stop>
+                                                    <button @click.stop="openAddItem('edit', item.categoryId, item)" class="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all border border-transparent hover:border-blue-100" title="編輯工項設定">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                                                    </button>
+                                                    <button @click.stop="openDeleteModal('item', item.id, item.name)" class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100 mx-1" title="刪除工項">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                                    </button>
+                                                    <div class="h-6 w-px bg-slate-200 mx-1"></div>
+                                                    <button @click="toggleItemExpand(item.id)" class="p-2 text-slate-400 hover:text-slate-800 rounded-xl transition-all flex items-center justify-center">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300" :class="expandedItem === item.id ? 'rotate-180 text-blue-600' : ''"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div v-if="expandedItem === item.id" class="px-5 sm:px-6 pb-6 animate-fade-in" @click.stop>
+                                                <div class="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm">
+                                                    
+                                                    <div class="p-4 border-b border-slate-100 bg-slate-50/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                                        <div class="flex items-center gap-3">
+                                                            <div class="bg-white border border-slate-200 p-1.5 rounded-lg text-slate-400">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                                            </div>
+                                                            <div>
+                                                                <p class="text-[11px] text-slate-400 font-bold uppercase">匯款帳戶資訊</p>
+                                                                <p class="text-sm font-semibold text-slate-800">{{ getContractorBankAccount(item.contractorId) }}</p>
+                                                            </div>
+                                                        </div>
+                                                        <button @click="showFullContractorInfo = !showFullContractorInfo" class="text-blue-600 text-xs font-bold hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg w-full sm:w-auto text-center">
+                                                            {{ showFullContractorInfo ? '收起聯絡資料' : '查看完整聯絡資料' }}
+                                                        </button>
+                                                    </div>
+
+                                                    <div v-if="showFullContractorInfo" class="px-5 py-4 bg-slate-50/50 border-b border-slate-100 animate-fade-in">
+                                                        <div class="flex flex-wrap gap-x-12 gap-y-3">
+                                                            <div>
+                                                                <p class="text-[10px] text-slate-400 font-bold uppercase mb-0.5">連絡電話</p>
+                                                                <p class="text-sm font-medium text-slate-800">{{ getContractorDetail(item.contractorId).phone || '未填寫' }}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p class="text-[10px] text-slate-400 font-bold uppercase mb-0.5">聯絡地址</p>
+                                                                <p class="text-sm font-medium text-slate-800">{{ getContractorDetail(item.contractorId).address || '未填寫' }}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+                                                        <div class="p-5">
+                                                            <h5 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>
+                                                                歷史付款紀錄
+                                                            </h5>
+                                                            <div class="space-y-2.5 max-h-[220px] overflow-y-auto pr-2 no-scrollbar">
+                                                                <div v-for="pay in payments[item.id] || []" :key="pay.id" class="flex justify-between items-center p-3 bg-white border border-slate-200/60 rounded-xl group hover:border-blue-200 hover:shadow-sm transition-all">
+                                                                    <div class="flex flex-col">
+                                                                        <span class="text-slate-800 font-bold text-sm">{{ pay.note || '階段款項' }}</span>
+                                                                        <span class="text-slate-400 text-[11px] font-medium mt-0.5">{{ pay.date }}</span>
+                                                                    </div>
+                                                                    <div class="flex items-center gap-3">
+                                                                        <span class="font-bold text-slate-700 text-sm">NT$ {{ formatNum(pay.amount) }}</span>
+                                                                        <button @click.stop="openDeleteModal('payment', pay.id, pay.note || '此筆匯款記錄', item.id)" class="text-slate-300 hover:text-red-500 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 rounded-lg transition-all" title="刪除紀錄">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <div v-if="!payments[item.id]?.length" class="text-sm text-slate-400 italic py-6 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                                                                    尚無任何付款紀錄
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div class="p-5 bg-blue-50/30">
+                                                            <h5 class="text-xs font-bold text-blue-600 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                                                登錄付款
+                                                            </h5>
+                                                            <div class="space-y-3">
+                                                                <div class="grid grid-cols-2 gap-3">
+                                                                    <div>
+                                                                        <label class="block text-[11px] font-bold text-slate-500 mb-1">匯出金額</label>
+                                                                        <div class="relative">
+                                                                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">NT$</span>
+                                                                            <input type="number" min="0" v-model="newPayAmount" class="w-full border border-slate-300 rounded-xl pl-10 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none bg-white font-semibold text-slate-800 transition-all">
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label class="block text-[11px] font-bold text-slate-500 mb-1">日期</label>
+                                                                        <input type="date" v-model="newPayDate" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none bg-white text-slate-700 transition-all">
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    <label class="block text-[11px] font-bold text-slate-500 mb-1">備註說明</label>
+                                                                    <input type="text" v-model="newPayNote" placeholder="如：第一期工程款、尾款結清" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none bg-white text-slate-700 transition-all">
+                                                                </div>
+                                                                <button @click="submitPayment(item.id)" :disabled="!newPayAmount || !newPayDate" class="w-full bg-slate-800 text-white text-sm font-bold py-2.5 rounded-xl hover:bg-slate-900 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 mt-2 shadow-sm">
+                                                                    確認新增紀錄
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="isOverpaid(item)" class="bg-red-50 p-3 flex items-center justify-center gap-2 text-red-600 text-xs font-bold border-t border-red-100">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                                        警告：此項目的累計付款已超過原發包預算！
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div v-if="!currentItems.length" class="text-center py-12 text-slate-400">
+                                            <div class="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                                            </div>
+                                            <p class="text-sm font-medium">尚未建立任何發包工項</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="currentViewMain === 'contractor_view'" class="animate-fade-in">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                        <div>
+                            <h2 class="text-2xl font-bold text-slate-900 tracking-tight">工班基本資料庫</h2>
+                            <p class="text-slate-500 text-sm mt-1">統一管理合作廠商與匯款帳戶資訊</p>
+                        </div>
+                        <button @click="openContractorModal('add')" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-blue-700 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm transition-all">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            新增工班廠商
+                        </button>
+                    </div>
+
+                    <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left whitespace-nowrap">
+                                <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider font-bold">
+                                    <tr>
+                                        <th class="px-6 py-4">廠商名稱 / 聯絡人</th>
+                                        <th class="px-6 py-4">工程類別</th>
+                                        <th class="px-6 py-4">連絡電話</th>
+                                        <th class="px-6 py-4">銀行帳戶資訊</th>
+                                        <th class="px-6 py-4 text-right">操作管理</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-for="con in filteredContractors" :key="con.id" class="hover:bg-slate-50/50 transition-colors group">
+                                        <td class="px-6 py-4 font-bold text-slate-800">{{ con.name }}</td>
+                                        <td class="px-6 py-4">
+                                            <span class="text-[11px] font-bold px-2.5 py-1 rounded-md border tracking-wide" :class="getCategory(con.categoryId).color">
+                                                {{ getCategory(con.categoryId).name }}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 font-medium text-slate-600">{{ con.phone || '未提供' }}</td>
+                                        <td class="px-6 py-4">
+                                            <div class="flex flex-col">
+                                                <span class="font-bold text-slate-700 font-mono">{{ con.bankAccount }}</span>
+                                                <span class="text-slate-400 text-xs mt-0.5">{{ con.bankCode }} {{ con.bankName }}</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <div class="flex items-center gap-1 justify-end opacity-60 group-hover:opacity-100 transition-opacity">
+                                                <button @click="openContractorModal('edit', con)" class="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="編輯">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                                                </button>
+                                                <button @click="openDeleteModal('contractor', con.id, con.name)" class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all" title="刪除">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div v-if="!filteredContractors.length" class="text-center py-16 text-slate-400">
+                            <div class="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                            </div>
+                            <p class="text-sm font-medium">目前尚無符合的工班資料</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <div v-if="projectModal.show" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="bg-white rounded-[2rem] p-6 md:p-8 max-w-md w-full shadow-2xl transform transition-all">
+                <h3 class="text-xl font-bold mb-6 text-slate-900">{{ projectModal.mode === 'add' ? '建立新施工案場' : '修改業主總報價' }}</h3>
+                <div v-if="projectModal.mode === 'add'" class="mb-5">
+                    <label class="block text-[13px] font-bold text-slate-600 mb-1.5">案場名稱</label>
+                    <input type="text" v-model="projectModal.name" placeholder="如: 信義區-陳宅" class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 transition-all">
+                </div>
+                <div class="mb-8">
+                    <label class="block text-[13px] font-bold text-slate-600 mb-1.5">業主總報價 (合約總價)</label>
+                    <div class="relative">
+                        <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">NT$</span>
+                        <input type="number" min="0" v-model="projectModal.clientTotal" placeholder="輸入總工程款" class="w-full border border-slate-300 rounded-xl pl-12 pr-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-900 font-bold transition-all text-lg">
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button @click="projectModal.show = false" class="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors">取消</button>
+                    <button @click="saveProject" :disabled="(projectModal.mode === 'add' && !projectModal.name) || !projectModal.clientTotal" class="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:opacity-50 transition-all active:scale-95">確認儲存</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="clientPaymentModal.show" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="bg-white rounded-[2rem] p-6 md:p-8 max-w-md w-full shadow-2xl">
+                <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mb-5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                </div>
+                <h3 class="text-xl font-bold mb-6 text-slate-900">登錄業主匯款紀錄</h3>
+                <div class="space-y-5 mb-8">
+                    <div>
+                        <label class="block text-[13px] font-bold text-slate-600 mb-1.5">收到金額</label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">NT$</span>
+                            <input type="number" min="0" v-model="clientPaymentModal.amount" placeholder="0" class="w-full border border-slate-300 rounded-xl pl-12 pr-4 py-3 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none text-emerald-700 font-bold transition-all text-lg">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[13px] font-bold text-slate-600 mb-1.5">收款日期</label>
+                        <input type="date" v-model="clientPaymentModal.date" class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none text-slate-800 transition-all">
+                    </div>
+                    <div>
+                        <label class="block text-[13px] font-bold text-slate-600 mb-1.5">款項備註</label>
+                        <input type="text" v-model="clientPaymentModal.note" placeholder="如：第一期訂金、追加款..." class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none text-slate-800 transition-all">
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button @click="clientPaymentModal.show = false" class="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors">取消</button>
+                    <button @click="submitClientPayment" :disabled="!clientPaymentModal.amount || !clientPaymentModal.date" class="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-600/20 disabled:opacity-50 transition-all active:scale-95">
+                        確認新增
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="itemModal.show" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="bg-white rounded-[2rem] p-6 md:p-8 max-w-md w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+                <h3 class="text-xl font-bold mb-6 text-slate-900">{{ itemModal.mode === 'add' ? '新增發包工程項目' : '編輯項目細節' }}</h3>
+                <div class="space-y-6 mb-8">
+                    <div>
+                        <label class="block text-[13px] font-bold text-slate-600 mb-2">1. 選擇工程類別</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button v-for="cat in categories.filter(c => c.id !== 'cat7')" :key="cat.id" @click="selectCategoryForNewItem(cat.id)" 
+                                class="py-2.5 px-1 rounded-xl text-xs font-bold border transition-all text-center"
+                                :class="itemModal.categoryId === cat.id ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-500' : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'">
+                                {{ cat.name }}
+                            </button>
+                            <button @click="selectCategoryForNewItem('cat7')" class="py-2.5 px-1 rounded-xl text-xs font-bold border transition-all text-center"
+                                :class="itemModal.categoryId === 'cat7' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-500' : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'">
+                                其他
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[13px] font-bold text-slate-600 mb-2">2. 選擇負責工班</label>
+                        <select v-model="itemModal.contractorId" :disabled="!itemModal.categoryId" class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 font-medium disabled:bg-slate-50 disabled:text-slate-400 transition-all">
+                            <option value="" disabled>{{ itemModal.categoryId ? '請選擇工班廠商...' : '請先選擇上方的工程類別' }}</option>
+                            <option v-for="con in availableContractors" :key="con.id" :value="con.id">{{ con.name }}</option>
+                        </select>
+                    </div>
+                    <div class="space-y-5 pt-2">
+                        <div>
+                            <label class="block text-[13px] font-bold text-slate-600 mb-1.5">3. 填寫工項名稱</label>
+                            <input type="text" v-model="itemModal.name" placeholder="如: 基礎拆除與清運" class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 transition-all">
+                        </div>
+                        <div>
+                            <label class="block text-[13px] font-bold text-slate-600 mb-1.5">4. 發包金額 (成本)</label>
+                            <div class="relative">
+                                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">NT$</span>
+                                <input type="number" min="0" v-model="itemModal.total" placeholder="0" class="w-full border border-slate-300 rounded-xl pl-12 pr-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-900 font-bold transition-all text-lg">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button @click="itemModal.show = false" class="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors">取消</button>
+                    <button @click="saveItem" :disabled="!isItemFormValid" class="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:opacity-50 transition-all active:scale-95">確認</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="contractorModal.show" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="bg-white rounded-[2rem] p-6 md:p-8 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+                <h3 class="text-xl font-bold mb-6 text-slate-900">{{ contractorModal.mode === 'add' ? '新增工班廠商' : '編輯廠商資料' }}</h3>
+                <div class="space-y-5 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                            <label class="block text-[13px] font-bold text-slate-600 mb-1.5">廠商名稱 / 聯絡人</label>
+                            <input type="text" v-model="contractorModal.name" placeholder="如: 王泥作 / 王大明" class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 transition-all">
+                        </div>
+                        <div>
+                            <label class="block text-[13px] font-bold text-slate-600 mb-1.5">負責工程類別</label>
+                            <select v-model="contractorModal.categoryId" class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none bg-white text-slate-800 transition-all font-medium">
+                                <option disabled value="">請選擇類別...</option>
+                                <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                            <label class="block text-[13px] font-bold text-slate-600 mb-1.5">連絡電話</label>
+                            <input type="text" v-model="contractorModal.phone" placeholder="如: 0912-345678" class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 transition-all">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[13px] font-bold text-slate-600 mb-1.5">聯絡地址</label>
+                        <input type="text" v-model="contractorModal.address" placeholder="公司或聯絡地址..." class="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 transition-all">
+                    </div>
+                    <div class="bg-slate-50 p-5 rounded-2xl border border-slate-100 mt-2">
+                        <h4 class="text-xs font-bold text-slate-500 uppercase mb-4">匯款帳戶設定</h4>
+                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                            <div class="sm:col-span-3">
+                                <label class="block text-[12px] font-bold text-slate-600 mb-1">銀行代碼</label>
+                                <input type="text" v-model="contractorModal.bankCode" placeholder="如: 004" class="w-full border border-slate-300 rounded-xl px-3 py-2.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 font-mono transition-all">
+                            </div>
+                            <div class="sm:col-span-4">
+                                <label class="block text-[12px] font-bold text-slate-600 mb-1">銀行名稱</label>
+                                <input type="text" v-model="contractorModal.bankName" placeholder="如: 台灣銀行" class="w-full border border-slate-300 rounded-xl px-3 py-2.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 transition-all">
+                            </div>
+                            <div class="sm:col-span-5">
+                                <label class="block text-[12px] font-bold text-slate-600 mb-1">銀行帳號</label>
+                                <input type="text" v-model="contractorModal.bankAccount" placeholder="輸入帳號數字..." class="w-full border border-slate-300 rounded-xl px-3 py-2.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-slate-800 font-mono transition-all">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button @click="contractorModal.show = false" class="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors">取消</button>
+                    <button @click="saveContractor" :disabled="!isContractorFormValid" class="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:opacity-50 transition-all active:scale-95">確認儲存</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="confirmDelete.show" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in zoom-in duration-200">
+            <div class="bg-white rounded-[2rem] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center transform transition-all">
+                <div class="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-6 mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-red-500"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                </div>
+                <h3 class="text-xl font-extrabold mb-2 text-slate-900">確定刪除此資料嗎？</h3>
+                <p class="text-slate-500 text-sm mb-8 leading-relaxed">
+                    您即將刪除 <span class="font-bold text-slate-800">「{{ confirmDelete.title }}」</span>。<br>此操作執行後將無法復原。
+                </p>
+                <div class="flex gap-3">
+                    <button @click="confirmDelete.show = false" class="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors">取消</button>
+                    <button @click="executeDelete" class="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-md shadow-red-600/20 transition-all active:scale-95">確定刪除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted, watch } = Vue;
+
+        // ================= ★ Firebase 初始化 ★ =================
+        const firebaseConfig = {
+            apiKey: "AIzaSyA4220phuVzsZel6O3qz3BJmbv74GD6fhQ",
+            authDomain: "yoder-design-quote.firebaseapp.com",
+            databaseURL: "https://yoder-design-quote-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "yoder-design-quote",
+            storageBucket: "yoder-design-quote.firebasestorage.app",
+            messagingSenderId: "697812549346",
+            appId: "1:697812549346:web:d643bfc0226572619828bb",
+            measurementId: "G-6HJE3FCXPM"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+        const docRef = db.collection('appData').doc('engineering_tracker');
+
+        createApp({
+            setup() {
+                const isLoading = ref(true);
+                const isCloudSynced = ref(true);
+
+                const currentViewMain = ref('project_view'); 
+                const view = ref('list'); 
+                const selectedProjectId = ref(null);
+                const searchTerm = ref("");
+                const searchTermContractor = ref(""); 
+                const expandedItem = ref(null);
+                const showFullContractorInfo = ref(false); 
+
+                const projects = ref([]);
+                const items = ref({});
+                const payments = ref({}); 
+                const clientPayments = ref({}); 
+                const contractors = ref([]); 
+
+                const categories = [
+                    { id: 'cat1', name: '基礎拆除', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+                    { id: 'cat2', name: '水電工程', color: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
+                    { id: 'cat3', name: '泥作工程', color: 'bg-orange-50 text-orange-700 border-orange-200' },
+                    { id: 'cat4', name: '木作工程', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+                    { id: 'cat5', name: '油漆工程', color: 'bg-rose-50 text-rose-700 border-rose-200' },
+                    { id: 'cat6', name: '系統櫃體', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                    { id: 'cat7', name: '其他工程', color: 'bg-slate-100 text-slate-600 border-slate-200' }
+                ];
+
+                const defaultData = {
+                    projects: [
+                        { id: 'p1', name: '台北中山區-林宅翻修案', code: '2024-A01', status: '進行中', clientTotal: 500000 }
+                    ],
+                    contractors: [
+                        { id: 'con1', name: '王泥作 / 王大明', categoryId: 'cat1', phone: '0912-111111', address: '台北市...', bankAccount: '123-456-789001', bankCode: '004', bankName: '台灣銀行' }
+                    ],
+                    items: {
+                        'p1': [
+                            { id: 'i1', name: '保護工程與清運', total: 85000, categoryId: 'cat1', contractorId: 'con1' }
+                        ]
+                    },
+                    payments: {
+                        'i1': [{ id: 'pay1', date: '2026-03-21', amount: 85000, note: '全額清償' }]
+                    },
+                    clientPayments: {
+                        'p1': [{ id: 'cp1', date: '2026-03-15', amount: 150000, note: '第一期開工訂金' }]
+                    }
+                };
+
+                const projectModal = ref({ show: false, mode: 'add', name: "", clientTotal: "" });
+                const itemModal = ref({ show: false, mode: 'add', id: null, name: "", total: "", categoryId: '', contractorId: '' });
+                const confirmDelete = ref({ show: false, type: null, id: null, title: "", parentId: null });
+                const contractorModal = ref({ show: false, mode: 'add', id: null, name: '', categoryId: '', phone: '', address: '', bankAccount: '', bankCode: '', bankName: '' });
+                const clientPaymentModal = ref({ show: false, amount: "", date: new Date().toISOString().split('T')[0], note: "" });
+
+                const newPayAmount = ref("");
+                const newPayNote = ref("");
+                const newPayDate = ref(new Date().toISOString().split('T')[0]); 
+
+                const getClientPaidForProject = (pid) => { return (clientPayments.value[pid] || []).reduce((sum, p) => sum + p.amount, 0); };
+                const getContractorPaidForProject = (pid) => {
+                    const its = items.value[pid] || []; let total = 0;
+                    its.forEach(it => { const pps = payments.value[it.id] || []; total += pps.reduce((sum, p) => sum + p.amount, 0); }); return total;
+                };
+
+                const filteredProjects = computed(() => {
+                    if (!searchTerm.value) return projects.value; const st = searchTerm.value.toLowerCase();
+                    return projects.value.filter(p => p.name.toLowerCase().includes(st) || p.code.toLowerCase().includes(st));
+                });
+
+                const enhancedFilteredProjects = computed(() => {
+                    return filteredProjects.value.map(p => { return { ...p, cashFlow: getClientPaidForProject(p.id) - getContractorPaidForProject(p.id) }; });
+                });
+
+                const currentProject = computed(() => { return projects.value.find(p => p.id === selectedProjectId.value) || { clientTotal: 0 }; });
+                const currentItems = computed(() => items.value[selectedProjectId.value] || []);
+                const currentClientPayments = computed(() => clientPayments.value[selectedProjectId.value] || []);
+
+                const clientStats = computed(() => {
+                    if (!selectedProjectId.value) return { totalPaid: 0, percent: 0 };
+                    const totalPaid = currentClientPayments.value.reduce((sum, p) => sum + p.amount, 0); const clientTotal = currentProject.value.clientTotal || 0;
+                    return { totalPaid, percent: clientTotal > 0 ? Math.min(100, Math.round((totalPaid / clientTotal) * 100)) : 0 };
+                });
+
+                const projectStats = computed(() => {
+                    if (!selectedProjectId.value) return { totalQuote: 0, totalPaid: 0, percent: 0 };
+                    let totalQuote = 0; let totalPaid = 0;
+                    currentItems.value.forEach(it => { totalQuote += it.total; const pps = payments.value[it.id] || []; totalPaid += pps.reduce((sum, p) => sum + p.amount, 0); });
+                    return { totalQuote, totalPaid, percent: totalQuote > 0 ? Math.round((totalPaid / totalQuote) * 100) : 0 };
+                });
+
+                const cashFlow = computed(() => { return clientStats.value.totalPaid - projectStats.value.totalPaid; });
+
+                const filteredContractors = computed(() => {
+                    if (!searchTermContractor.value) return contractors.value; const st = searchTermContractor.value.toLowerCase();
+                    return contractors.value.filter(c => c.name.toLowerCase().includes(st) || c.phone.includes(st) || c.bankAccount.includes(st));
+                });
+
+                const availableContractors = computed(() => {
+                    if (!itemModal.value.categoryId) return []; return contractors.value.filter(c => c.categoryId === itemModal.value.categoryId);
+                });
+
+                const isItemFormValid = computed(() => itemModal.value.name && itemModal.value.total && itemModal.value.categoryId && itemModal.value.contractorId);
+                const isContractorFormValid = computed(() => contractorModal.value.name && contractorModal.value.categoryId && contractorModal.value.phone && contractorModal.value.bankAccount && contractorModal.value.bankCode);
+
+                // ================= ★ 雲端資料載入邏輯 ★ =================
+                const loadData = async () => {
+                    isLoading.value = true;
+                    try {
+                        const doc = await docRef.get();
+                        if (doc.exists) {
+                            const parsed = doc.data();
+                            projects.value = parsed.projects || [];
+                            items.value = parsed.items || {};
+                            payments.value = parsed.payments || {};
+                            clientPayments.value = parsed.clientPayments || {};
+                            contractors.value = parsed.contractors || [];
+                        } else {
+                            projects.value = defaultData.projects; 
+                            items.value = defaultData.items; 
+                            payments.value = defaultData.payments; 
+                            clientPayments.value = defaultData.clientPayments; 
+                            contractors.value = defaultData.contractors;
+                        }
+                    } catch (error) {
+                        console.error("讀取雲端資料失敗，改用 localStorage", error);
+                        const saved = localStorage.getItem('engineering_tracker_data_backup');
+                        if (saved) {
+                            const parsed = JSON.parse(saved);
+                            projects.value = parsed.projects || [];
+                            items.value = parsed.items || {};
+                            payments.value = parsed.payments || {};
+                            clientPayments.value = parsed.clientPayments || {};
+                            contractors.value = parsed.contractors || [];
+                        }
+                    } finally {
+                        isLoading.value = false;
+                    }
+                };
+
+                // ================= ★ 雲端資料儲存邏輯 ★ =================
+                let saveTimeout;
+                const saveData = () => {
+                    if (isLoading.value) return; 
+
+                    isCloudSynced.value = false;
+                    
+                    localStorage.setItem('engineering_tracker_data_backup', JSON.stringify({ 
+                        projects: projects.value, items: items.value, payments: payments.value, 
+                        clientPayments: clientPayments.value, contractors: contractors.value 
+                    }));
+
+                    clearTimeout(saveTimeout);
+                    saveTimeout = setTimeout(async () => {
+                        try {
+                            await docRef.set({
+                                projects: projects.value,
+                                items: items.value,
+                                payments: payments.value,
+                                clientPayments: clientPayments.value,
+                                contractors: contractors.value
+                            });
+                            isCloudSynced.value = true; 
+                        } catch (error) {
+                            console.error("儲存至 Firebase 失敗:", error);
+                        }
+                    }, 1500);
+                };
+
+                watch([projects, items, payments, clientPayments, contractors], saveData, { deep: true });
+
+                const formatNum = (num) => Number(num || 0).toLocaleString();
+                const getCategory = (id) => categories.find(c => c.id === id) || categories[categories.length - 1];
+                const getContractorDetail = (id) => contractors.value.find(c => c.id === id) || {};
+                const getContractorName = (id) => getContractorDetail(id).name || '未選擇工班';
+                const getContractorBankAccount = (id) => getContractorDetail(id).bankAccount || '無帳號資訊';
+
+                const openProject = (id) => { selectedProjectId.value = id; view.value = 'detail'; expandedItem.value = null; };
+                const openAddProjectModal = () => { projectModal.value = { show: true, mode: 'add', name: "", clientTotal: "" }; };
+                const openEditClientTotalModal = () => { projectModal.value = { show: true, mode: 'edit', name: currentProject.value.name, clientTotal: currentProject.value.clientTotal }; };
+                const saveProject = () => {
+                    if (projectModal.value.mode === 'add') {
+                        const id = 'p' + Date.now(); projects.value.unshift({ id, name: projectModal.value.name, code: new Date().getFullYear() + '-N' + Math.floor(Math.random() * 900 + 100), status: '進行中', clientTotal: parseFloat(projectModal.value.clientTotal) || 0 }); items.value[id] = []; clientPayments.value[id] = [];
+                    } else { const p = projects.value.find(p => p.id === selectedProjectId.value); if (p) p.clientTotal = parseFloat(projectModal.value.clientTotal) || 0; }
+                    projectModal.value.show = false;
+                };
+
+                const toggleProjectStatus = () => { const p = currentProject.value; p.status = p.status === '進行中' ? '已完工' : '進行中'; };
+                const openClientPaymentModal = () => { clientPaymentModal.value = { show: true, amount: "", date: new Date().toISOString().split('T')[0], note: "" }; };
+                const submitClientPayment = () => { if (!clientPayments.value[selectedProjectId.value]) clientPayments.value[selectedProjectId.value] = []; clientPayments.value[selectedProjectId.value].push({ id: 'cp' + Date.now(), date: clientPaymentModal.value.date, amount: parseFloat(clientPaymentModal.value.amount), note: clientPaymentModal.value.note }); clientPaymentModal.value.show = false; };
+
+                const openAddItem = (mode, categoryId = '', item = null) => {
+                    if (mode === 'add') itemModal.value = { show: true, mode: 'add', id: null, name: "", total: "", categoryId: '', contractorId: '' };
+                    else itemModal.value = { show: true, mode: 'edit', id: item.id, name: item.name, total: item.total, categoryId: item.categoryId, contractorId: item.contractorId };
+                };
+                const selectCategoryForNewItem = (catId) => { itemModal.value.categoryId = catId; itemModal.value.contractorId = ''; };
+                const saveItem = () => {
+                    const m = itemModal.value;
+                    if (m.mode === 'add') { const id = 'i' + Date.now(); if (!items.value[selectedProjectId.value]) items.value[selectedProjectId.value] = []; items.value[selectedProjectId.value].push({ id, name: m.name, total: parseFloat(m.total), categoryId: m.categoryId, contractorId: m.contractorId }); } 
+                    else { const it = items.value[selectedProjectId.value].find(i => i.id === m.id); if (it) { it.name = m.name; it.total = parseFloat(m.total); it.categoryId = m.categoryId; it.contractorId = m.contractorId; } }
+                    itemModal.value.show = false;
+                };
+
+                const toggleItemExpand = (id) => { if (expandedItem.value === id) { expandedItem.value = null; showFullContractorInfo.value = false; } else { expandedItem.value = id; } newPayAmount.value = ""; newPayNote.value = ""; newPayDate.value = new Date().toISOString().split('T')[0]; };
+                const submitPayment = (itemId) => { if (!newPayAmount.value || !newPayDate.value) return; if (!payments.value[itemId]) payments.value[itemId] = []; payments.value[itemId].push({ id: 'pay' + Date.now(), date: newPayDate.value, amount: parseFloat(newPayAmount.value), note: newPayNote.value }); newPayAmount.value = ""; newPayNote.value = ""; newPayDate.value = new Date().toISOString().split('T')[0]; };
+
+                const getItemPaid = (item) => (payments.value[item.id] || []).reduce((sum, p) => sum + p.amount, 0);
+                const getItemBalance = (item) => item.total - getItemPaid(item);
+                const getItemPercent = (item) => { const paid = getItemPaid(item); return Math.min(100, Math.round((paid / item.total) * 100)) || 0; };
+                const isOverpaid = (item) => getItemPaid(item) > item.total;
+
+                const openContractorModal = (mode, con = null) => {
+                    if (mode === 'add') contractorModal.value = { show: true, mode: 'add', id: null, name: '', categoryId: '', phone: '', address: '', bankAccount: '', bankCode: '', bankName: '' };
+                    else contractorModal.value = { show: true, mode: 'edit', id: con.id, name: con.name, categoryId: con.categoryId, phone: con.phone, address: con.address, bankAccount: con.bankAccount, bankCode: con.bankCode, bankName: con.bankName };
+                };
+                const saveContractor = () => {
+                    const cm = contractorModal.value;
+                    if (cm.mode === 'add') contractors.value.push({ id: 'con' + Date.now(), name: cm.name, categoryId: cm.categoryId, phone: cm.phone, address: cm.address, bankAccount: cm.bankAccount, bankCode: cm.bankCode, bankName: cm.bankName });
+                    else { const con = contractors.value.find(c => c.id === cm.id); if (con) { con.name = cm.name; con.categoryId = cm.categoryId; con.phone = cm.phone; con.address = cm.address; con.bankAccount = cm.bankAccount; con.bankCode = cm.bankCode; con.bankName = cm.bankName; } }
+                    contractorModal.value.show = false;
+                };
+
+                const openDeleteModal = (type, id, title, parentId = null) => { confirmDelete.value = { show: true, type, id, title, parentId }; };
+                const executeDelete = () => {
+                    const { type, id, parentId } = confirmDelete.value;
+                    if (type === 'project') { projects.value = projects.value.filter(p => p.id !== id); delete items.value[id]; delete clientPayments.value[id]; if (selectedProjectId.value === id) { view.value = 'list'; selectedProjectId.value = null; } } 
+                    else if (type === 'item') { items.value[selectedProjectId.value] = items.value[selectedProjectId.value].filter(it => it.id !== id); delete payments.value[id]; } 
+                    else if (type === 'payment') { payments.value[parentId] = payments.value[parentId].filter(p => p.id !== id); } 
+                    else if (type === 'clientPayment') { clientPayments.value[parentId] = clientPayments.value[parentId].filter(p => p.id !== id); } 
+                    else if (type === 'contractor') { contractors.value = contractors.value.filter(c => c.id !== id); }
+                    confirmDelete.value.show = false;
+                };
+
+                onMounted(() => { loadData(); });
+
+                return {
+                    isLoading, isCloudSynced,
+                    currentViewMain, view, selectedProjectId, searchTerm, searchTermContractor, expandedItem, showFullContractorInfo,
+                    projects, items, payments, clientPayments, categories, contractors,
+                    filteredProjects, enhancedFilteredProjects, currentProject, currentItems, currentClientPayments, 
+                    projectStats, clientStats, cashFlow,
+                    filteredContractors, availableContractors, isItemFormValid, isContractorFormValid,
+                    projectModal, itemModal, confirmDelete, contractorModal, clientPaymentModal, newPayAmount, newPayNote, newPayDate,
+                    formatNum, openProject, openAddProjectModal, openEditClientTotalModal, saveProject, toggleProjectStatus, openDeleteModal, executeDelete, 
+                    openAddItem, saveItem, selectCategoryForNewItem, toggleItemExpand, 
+                    getCategory, getContractorName, getContractorBankAccount, getContractorDetail,
+                    submitPayment, openClientPaymentModal, submitClientPayment, getItemPaid, getItemBalance, getItemPercent, isOverpaid,
+                    openContractorModal, saveContractor
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
