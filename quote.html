@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>川互設計 - 報價系統 (雲端升級版)</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        /* 川互設計 - 品牌色系 */
+        :root {
+            --brand-main: #343a40;       /* 深鐵灰：主要標題與外框 */
+            --brand-accent: #6B7A8F;     /* 莫蘭迪藍：按鈕與強調色 */
+            --brand-light: #f8f9fa;      /* 淺灰白：背景色 */
+            --brand-gold: #c5a880;       /* 香檳金：警告或特別提示 */
+        }
+
+        body { font-family: "微軟正黑體", sans-serif; padding: 20px; background-color: #f4f6f9; color: #333; margin: 0; }
+        input, textarea { color: #333 !important; font-family: inherit; }
+        input[type="text"], input[type="number"], input[type="date"], textarea { background-color: #fff; }
+        .page { display: none; }
+        .page.active { display: block; }
+
+        .dashboard-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--brand-main); padding-bottom: 10px; margin-bottom: 20px; }
+        .dashboard-header h1 { color: var(--brand-main); margin: 0; }
+        .header-btn-group { display: flex; gap: 10px; align-items: center; }
+        .btn-new-project { background-color: var(--brand-main); color: white; border: none; padding: 10px 20px; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold; }
+        .btn-new-project:hover { background-color: #212529; }
+        .btn-backup { background-color: var(--brand-accent); color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .btn-restore { background-color: var(--brand-gold); color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .btn-import-excel { background-color: #5a6268; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
+
+        .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .project-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); cursor: pointer; border-left: 5px solid var(--brand-accent); transition: transform 0.2s; position: relative;}
+        .project-card:hover { transform: translateY(-5px); box-shadow: 0 5px 15px rgba(0,0,0,0.15); }
+        .project-card h3 { margin: 0 0 10px 0; color: var(--brand-main); }
+        .project-card p { margin: 5px 0; color: #7f8c8d; font-size: 14px; }
+        .del-project-btn { position: absolute; top: 10px; right: 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 12px; }
+
+        .nav-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn-back { background-color: #95a5a6; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        
+        .doc-header-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .doc-title-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 15px; border-bottom: 2px solid var(--brand-main); padding-bottom: 10px; }
+        .doc-title-row h2 { margin: 0; color: var(--brand-main); }
+        .info-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+        .info-table th { background-color: #f8f9fa; border: 1px solid #ddd; padding: 8px; text-align: right; width: 15%; color: #555; }
+        .info-table td { border: 1px solid #ddd; padding: 8px; text-align: left; width: 35%; }
+        .info-table input[type="text"] { width: 90%; padding: 4px; border: 1px solid transparent; background-color: transparent !important; font-size: 15px; }
+        .info-table input[type="text"]:focus { border-bottom: 1px solid var(--brand-accent); outline: none; background-color: #fdfdfd !important; }
+        .info-table input.short-input { width: 40%; }
+
+        .sticky-controls { background-color: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+        .btn-toggle { padding: 10px 20px; font-size: 16px; background-color: var(--brand-main); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-toggle.client-mode { background-color: #27ae60; }
+        .btn-save { padding: 10px 20px; font-size: 16px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-save:hover { background-color: #0056b3; }
+        .btn-export-pdf { padding: 10px 20px; font-size: 16px; background-color: #c0392b; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-export-pdf:hover { background-color: #e74c3c; }
+        
+        .grand-total { font-size: 24px; font-weight: bold; color: var(--brand-main); margin-right: 15px;}
+        .controls-right { display: flex; gap: 10px; align-items: center;}
+
+        .category-block { background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .category-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--brand-accent); padding-bottom: 10px; margin-bottom: 10px; cursor: pointer; }
+        .category-title { font-size: 20px; font-weight: bold; color: var(--brand-main); margin: 0; }
+        .header-controls { display: flex; align-items: center; gap: 15px; }
+        .header-subtotal { font-size: 18px; font-weight: bold; color: #c0392b; }
+        .btn-collapse { background: none; border: 1px solid var(--brand-accent); color: var(--brand-accent); padding: 5px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        
+        .bulk-margin-group { display: flex; align-items: center; gap: 5px; font-size: 14px; color: var(--brand-main); background: #f1f3f5; padding: 4px 10px; border-radius: 5px; border: 1px solid #ccc;}
+        .bulk-margin-group input { width: 50px; padding: 2px; text-align: center; border: 1px solid #ccc; border-radius: 3px; font-size: 14px;}
+        .btn-bulk-margin { background: var(--brand-main); color: white; border: none; border-radius: 3px; cursor: pointer; padding: 3px 8px; font-size: 13px; font-weight: bold;}
+
+        /* 表格固定比例設計 */
+        table.quote-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; table-layout: fixed; word-wrap: break-word; }
+        .quote-table th, .quote-table td { border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: middle; word-break: break-word; overflow-wrap: break-word; }
+        .quote-table th { background-color: #ecf0f1; font-size: 14px; color: #333 !important; }
+        
+        .quote-table input[type="text"], .quote-table input[type="number"] { width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .quote-table input.client-amount { background-color: #f8f9fa !important; border: 1px solid var(--brand-main); font-weight: bold; color: var(--brand-main) !important; } 
+        .remark, .sum-remark { width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; resize: none; overflow: hidden; min-height: 32px; font-family: inherit; font-size: 14px; line-height: 1.5; }
+        
+        .readonly-num { font-weight: bold; color: #2c3e50; }
+        .cost-total-text { color: #8e44ad; font-weight: bold; } 
+        .margin-total-text { color: #27ae60; font-weight: bold; } 
+        .internal-col, .internal-col th { background-color: #fff3cd !important; color: #333 !important; }
+        .internal-th { background-color: #ffe8a1 !important; color: #333 !important; }
+
+        .action-btns-row { display: flex; gap: 10px; margin-top: 10px; margin-bottom: 5px; }
+        .btn-add { background-color: var(--brand-main); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-paste-excel { background-color: var(--brand-accent); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-delete { background-color: #c0392b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .hidden { display: none !important; }
+
+        .summary-block { border: 2px solid var(--brand-main); background-color: #fafbfc; }
+        .summary-block .category-title { color: var(--brand-main) !important; border-bottom: none; }
+        #summaryTable th { background-color: var(--brand-main) !important; color: white !important; border-color: var(--brand-main); }
+        #summaryTable tbody td { font-size: 15px; color: #333 !important; }
+        #summaryTable tbody td:nth-child(2) { color: var(--brand-main) !important; font-weight: bold; } 
+        #summaryTable tfoot td { padding: 10px; font-size: 15px; border-top: 1px solid #ddd; color: #333 !important; }
+
+        .highlight-amount { font-weight: bold; color: var(--brand-main) !important; font-size: 16px; }
+        .highlight-profit { font-weight: bold; color: #27ae60 !important; font-size: 16px; }
+        .tfoot-label { text-align: right; font-weight: bold; color: var(--brand-main) !important; }
+        .tfoot-final-row { background-color: #ecf0f1 !important; border-top: 2px solid var(--brand-main) !important; }
+        .tfoot-final-row td { font-size: 18px; font-weight: bold; color: #333 !important; }
+
+        .autocomplete-container { position: relative; }
+        .autocomplete-list { position: absolute; top: 100%; left: 0; min-width: 550px; max-width: 80vw; z-index: 999; background: #fff; border: 1px solid var(--brand-accent); border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); max-height: 300px; overflow-y: auto; white-space: nowrap;}
+        .autocomplete-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; text-align: left;}
+        .autocomplete-item:hover { background-color: #eaf2f8; }
+        .autocomplete-item strong { color: var(--brand-main); font-size: 15px; }
+        .autocomplete-item small { color: #7f8c8d; display: block; margin-top: 4px; font-size: 13px;}
+        
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 20px; border-radius: 8px; width: 600px; max-width: 90%; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .modal-content h3 { margin-top: 0; color: var(--brand-main); border-bottom: 2px solid var(--brand-accent); padding-bottom: 10px;}
+        .modal-content textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-family: monospace; resize: vertical; }
+        .modal-btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; }
+        .btn-cancel { background-color: #95a5a6; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        
+        #loading-overlay { display: none; position: fixed; top:0; left:0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 9999; justify-content: center; align-items: center; font-size: 24px; font-weight: bold; color: var(--brand-accent); flex-direction: column; gap: 15px;}
+        .loader-spinner { border: 6px solid #f3f3f3; border-top: 6px solid var(--brand-accent); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* ================= ★ PDF 終極安全輸出模式 ★ ================= */
+        body.exporting-pdf {
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            min-width: 1000px !important;
+        }
+
+        body.exporting-pdf #page-dashboard, 
+        body.exporting-pdf .nav-bar, 
+        body.exporting-pdf .sticky-controls, 
+        body.exporting-pdf .action-btns-row, 
+        body.exporting-pdf .btn-collapse, 
+        body.exporting-pdf .btn-delete, 
+        body.exporting-pdf .bulk-margin-group,
+        body.exporting-pdf .internal-col {
+            display: none !important;
+        }
+
+        body.exporting-pdf #pdf-export-area {
+            width: 1000px !important; 
+            margin: 0 !important; 
+            padding: 20px !important;
+            box-sizing: border-box;
+        }
+
+        body.exporting-pdf .doc-header-card, 
+        body.exporting-pdf .category-block { 
+            box-shadow: none !important; 
+            border: none !important; 
+            margin-bottom: 5px !important; 
+            padding: 0 !important; 
+        }
+        
+        body.exporting-pdf input { 
+            border: none !important; 
+            background: transparent !important; 
+            padding: 0 !important; 
+            font-size: 13px !important; 
+        }
+
+        body.exporting-pdf table.quote-table { font-size: 13px !important; }
+        body.exporting-pdf tr { page-break-inside: avoid !important; }
+        body.exporting-pdf .quote-table th, 
+        body.exporting-pdf .quote-table td { 
+            border: 1px solid #7f8c8d !important; 
+        } 
+        
+        .pdf-textarea-replacement { 
+            white-space: pre-wrap; 
+            word-break: break-all; 
+            font-size: 13px; 
+            line-height: 1.5; 
+            padding: 2px; 
+            text-align: left; 
+            width: 100%; 
+            display: block;
+        }
+
+        body.exporting-pdf .main-category .quote-table th:nth-child(1), body.exporting-pdf .main-category .quote-table td:nth-child(1) { width: 8% !important; }
+        body.exporting-pdf .main-category .quote-table th:nth-child(2), body.exporting-pdf .main-category .quote-table td:nth-child(2) { width: 25% !important; }
+        body.exporting-pdf .main-category .quote-table th:nth-child(3), body.exporting-pdf .main-category .quote-table td:nth-child(3) { width: 7% !important; }
+        body.exporting-pdf .main-category .quote-table th:nth-child(4), body.exporting-pdf .main-category .quote-table td:nth-child(4) { width: 7% !important; }
+        body.exporting-pdf .main-category .quote-table th:nth-child(5), body.exporting-pdf .main-category .quote-table td:nth-child(5) { width: 12% !important; }
+        body.exporting-pdf .main-category .quote-table th:nth-child(6), body.exporting-pdf .main-category .quote-table td:nth-child(6) { width: 16% !important; }
+        body.exporting-pdf .main-category .quote-table th:nth-child(7), body.exporting-pdf .main-category .quote-table td:nth-child(7) { width: 25% !important; }
+
+        body.exporting-pdf #summaryTable th:nth-child(1), body.exporting-pdf #summaryTable td:nth-child(1) { width: 10% !important; }
+        body.exporting-pdf #summaryTable th:nth-child(2), body.exporting-pdf #summaryTable td:nth-child(2) { width: 30% !important; }
+        body.exporting-pdf #summaryTable th:nth-child(3), body.exporting-pdf #summaryTable td:nth-child(3) { width: 20% !important; }
+        body.exporting-pdf #summaryTable th:nth-child(7), body.exporting-pdf #summaryTable td:nth-child(7) { width: 40% !important; }
+    </style>
+</head>
+<body>
+
+    <div id="loading-overlay">
+        <div class="loader-spinner"></div>
+        <span id="loading-text">資料處理中，請稍候...</span>
+    </div>
+
+    <div id="page-dashboard" class="page active">
+        <div class="dashboard-header">
+            <h1>川互設計 - 案場管理系統 (雲端同步)</h1>
+            <div class="header-btn-group">
+                <button id="btnImportOldExcel" class="btn-import-excel" title="上傳過去的 Excel 報價單">📂 匯入舊版 Excel (學習資料)</button>
+                <input type="file" id="importOldExcelInput" accept=".xlsx, .xls, .csv" style="display: none;" multiple>
+                <button id="btnExportBackup" class="btn-backup" title="匯出雲端資料庫備份">📥 系統備份</button>
+                <button id="btnImportBackup" class="btn-restore">📤 系統還原</button>
+                <input type="file" id="importFileInput" accept=".json" style="display: none;">
+                <button class="btn-new-project" id="btnGoToNewProject">＋ 新增案場</button>
+            </div>
+        </div>
+        <div class="project-grid" id="projectGrid"></div>
+    </div>
+
+    <div id="page-quotation" class="page">
+        <div class="nav-bar">
+            <button class="btn-back" id="btnBackToDashboard">← 返回列表</button>
+            <span style="color: #7f8c8d; font-size: 14px;">目前編輯中：<strong id="currentDocIdDisplay">新案場</strong> <span id="unsavedStar" style="color:red; display:none;">(未儲存 *)</span></span>
+        </div>
+
+        <div id="pdf-export-area">
+            <div class="doc-header-card">
+                <div class="doc-title-row">
+                    <h2>預估裝修工程報價表</h2>
+                    <div>報價日期：<input type="date" id="docDate" style="padding:5px; border:1px solid #ccc; border-radius:4px;"></div>
+                </div>
+                <table class="info-table">
+                    <tr>
+                        <th>客戶姓名 / 電話</th>
+                        <td><input type="text" id="clientName" class="short-input" placeholder="客戶姓名"> / <input type="text" id="clientPhone" class="short-input" placeholder="電話"></td>
+                        <th>承案設計師 / 電話</th>
+                        <td><input type="text" id="designerName" class="short-input" value="川互設計師"> / <input type="text" id="designerPhone" class="short-input" value="0989-896-296"></td>
+                    </tr>
+                    <tr>
+                        <th>案件名稱</th>
+                        <td><input type="text" id="projectName" placeholder="案件名稱" style="width: 95%;"></td>
+                        <th>公司電話 / 統編</th>
+                        <td><input type="text" id="companyPhone" class="short-input" value="(03)-360-4255"> / <input type="text" id="companyId" class="short-input" value="69503772"></td>
+                    </tr>
+                    <tr>
+                        <th>案件地址</th>
+                        <td><input type="text" id="projectAddress" placeholder="案件地址" style="width: 95%;"></td>
+                        <th>公司地址</th>
+                        <td><input type="text" id="companyAddress" value="桃園市設計區創意路1號" style="width: 95%;"></td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="sticky-controls">
+                <button id="toggleBtn" class="btn-toggle">隱藏內部成本 (切換為客戶版)</button>
+                <div class="controls-right">
+                    <div class="grand-total">總計工程款：<span id="grandTotalText">0</span></div>
+                    <button id="btnExportPDF" class="btn-export-pdf" title="自動展開全部細項，轉存完美比例 PDF">📄 下載客戶版 PDF</button>
+                    <button id="btnSaveToCloud" class="btn-save">☁️ 儲存至雲端</button>
+                </div>
+            </div>
+
+            <div id="quotationContainer"></div>
+
+            <div class="category-block summary-block">
+                <div class="category-header" style="border-bottom: none; margin-bottom: 0; cursor: default;">
+                    <h2 class="category-title">預估工程估價單明細 (總表)</h2>
+                </div>
+                <table class="quote-table" id="summaryTable">
+                    <thead>
+                        <tr>
+                            <th width="6%">項次</th>
+                            <th width="18%">工程類別</th>
+                            <th width="12%">金額</th>
+                            <th class="internal-col" width="12%">單價成本</th>
+                            <th class="internal-col" width="12%">利潤總和</th>
+                            <th class="internal-col" width="8%">成數</th>
+                            <th width="32%">備註說明</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                    <tfoot>
+                        <tr style="background-color: #fafbfc;">
+                            <td colspan="2" class="tfoot-label">工程金額：</td>
+                            <td><span id="sumProjectAmtClient" class="highlight-amount">0</span></td>
+                            <td class="internal-col"><span id="sumProjectAmtCost" class="readonly-num">0</span></td>
+                            <td class="internal-col"><span id="sumProjectAmtProfit" class="highlight-profit">0</span></td>
+                            <td class="internal-col"><span id="sumProjectAmtMargin" class="readonly-num">0.00</span></td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" class="tfoot-label">
+                                監造費 <input type="number" id="managementFeePct" value="8" style="width: 45px; padding:2px; text-align: center; border: 1px solid #ccc; border-radius: 4px;"> %：
+                            </td>
+                            <td><span id="sumMgmtFeeClient" class="highlight-amount">0</span></td>
+                            <td class="internal-col"><span id="sumMgmtFeeCost" class="readonly-num">0</span></td>
+                            <td class="internal-col"><span id="sumMgmtFeeProfit" class="highlight-profit">0</span></td>
+                            <td class="internal-col">-</td>
+                            <td><textarea id="mgmtFeeRemark" class="sum-remark" rows="1" placeholder="監造費備註..."></textarea></td>
+                        </tr>
+                        <tr style="background-color: #f8f9fa;">
+                            <td colspan="2" class="tfoot-label">合　　計：</td>
+                            <td><span id="sumSubtotalClient" class="highlight-amount">0</span></td>
+                            <td class="internal-col"><span id="sumSubtotalCost" class="readonly-num">0</span></td>
+                            <td class="internal-col"><span id="sumSubtotalProfit" class="highlight-profit">0</span></td>
+                            <td class="internal-col"><span id="sumSubtotalMargin" class="readonly-num">0.00</span></td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" class="tfoot-label">
+                                營業稅 <input type="number" id="taxPct" value="5" style="width: 45px; padding:2px; text-align: center; border: 1px solid #ccc; border-radius: 4px;"> %：
+                            </td>
+                            <td><span id="sumTaxClient" class="highlight-amount">0</span></td>
+                            <td class="internal-col"><span id="sumTaxCost" class="readonly-num">0</span></td>
+                            <td class="internal-col"><span id="sumTaxProfit" class="highlight-profit">0</span></td>
+                            <td class="internal-col">-</td>
+                            <td><textarea id="taxRemark" class="sum-remark" rows="1" placeholder="如需開發票另加5%稅金..."></textarea></td>
+                        </tr>
+                        <tr class="tfoot-final-row">
+                            <td colspan="2" class="tfoot-label">總　　計：</td>
+                            <td><span id="sumFinalTotalClient" style="color: #c0392b !important;">0</span></td>
+                            <td class="internal-col"><span id="sumFinalTotalCost">0</span></td>
+                            <td class="internal-col"><span id="sumFinalTotalProfit" style="color: #27ae60 !important;">0</span></td>
+                            <td class="internal-col"><span id="sumFinalTotalMargin">0.00</span></td>
+                            <td style="color: #c0392b !important; text-align: right; padding-right: 20px;">總計工程款：NT$ <span id="summaryGrandTotalText">0</span></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div> 
+    </div>
+
+    <div id="pasteModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3>📋 從 Excel 貼上資料</h3>
+            <p style="color: #7f8c8d; font-size: 14px;">請在 Excel 中框選範圍（A欄 到 Q欄）後複製，點擊下方框框按 Ctrl+V 貼上。</p>
+            <textarea id="pasteArea" rows="12" placeholder="請在此按 Ctrl+V 貼上 Excel 內容..."></textarea>
+            <div class="modal-btns">
+                <button id="btnCancelPaste" class="btn-cancel">取消</button>
+                <button id="btnConfirmPaste" class="btn-save" style="background-color: var(--brand-accent)">確認貼上</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ================= ★ Firebase 初始化 ★ =================
+        const firebaseConfig = {
+            apiKey: "AIzaSyA4220phuVzsZel6O3qz3BJmbv74GD6fhQ",
+            authDomain: "yoder-design-quote.firebaseapp.com",
+            databaseURL: "https://yoder-design-quote-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "yoder-design-quote",
+            storageBucket: "yoder-design-quote.firebasestorage.app",
+            messagingSenderId: "697812549346",
+            appId: "1:697812549346:web:d643bfc0226572619828bb",
+            measurementId: "G-6HJE3FCXPM"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // ================= 雲端資料庫操作 =================
+        async function getCloudProjects() {
+            const snapshot = await db.collection("projects").get();
+            const projects = [];
+            snapshot.forEach(doc => projects.push(doc.data()));
+            return projects;
+        }
+
+        async function saveProjectToCloud(projectData) {
+            await db.collection("projects").doc(projectData.id).set(projectData);
+        }
+
+        async function deleteProjectFromCloud(id) {
+            await db.collection("projects").doc(id).delete();
+        }
+
+        // ================= 全域變數與狀態 =================
+        let currentDocId = null; 
+        let pastProjectsDB = []; 
+        let isInternalVisible = true;
+        let currentPasteTbody = null; 
+        let isDirty = false; 
+
+        function setDirty() {
+            isDirty = true;
+            document.getElementById('unsavedStar').style.display = 'inline';
+        }
+        function clearDirty() {
+            isDirty = false;
+            document.getElementById('unsavedStar').style.display = 'none';
+        }
+        
+        window.addEventListener('beforeunload', function (e) {
+            if (isDirty) {
+                e.preventDefault();
+                e.returnValue = ''; 
+            }
+        });
+
+        document.addEventListener('input', function(e) {
+            if(e.target.tagName.toLowerCase() === 'textarea') {
+                e.target.style.height = 'auto';
+                e.target.style.height = e.target.scrollHeight + 'px';
+            }
+        });
+        function resizeAllTextareas() {
+            document.querySelectorAll('textarea').forEach(el => {
+                el.style.height = 'auto';
+                el.style.height = el.scrollHeight + 'px';
+            });
+        }
+
+        const categories = [
+            "壹. 保護工程", "貳. 拆除工程", "參. 水電工程", "肆. 泥作工程", "伍. 木作工程", 
+            "陸. 系統櫃工程", "柒. 油漆工程", "捌. 鐵件/鋁件工程", "玖. 石材工程", "拾. 玻璃工程", 
+            "拾壹. 木地板工程", "拾貳. 廢棄物清運工程", "拾參. 清潔工程", "拾肆. 其他工程"
+        ];
+        
+        const container = document.getElementById('quotationContainer');
+        const summaryTbody = document.querySelector('#summaryTable tbody');
+        const loading = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+
+        function initTables() {
+            container.innerHTML = '';
+            summaryTbody.innerHTML = '';
+            categories.forEach((catName, index) => {
+                const isCollapsed = index !== 0; 
+                const blockHTML = `
+                    <div class="category-block main-category" data-index="${index}">
+                        <div class="category-header">
+                            <h2 class="category-title">${catName}</h2>
+                            <div class="header-controls">
+                                <div class="bulk-margin-group ${isInternalVisible ? '' : 'hidden'}">
+                                    統一成數: <input type="number" class="bulk-margin-input" value="1.35" step="0.01">
+                                    <button class="btn-bulk-margin">套用</button>
+                                </div>
+                                <span class="header-subtotal">小計：<span class="category-subtotal">0</span> 元</span>
+                                <button class="btn-collapse">${isCollapsed ? '展開 ＋' : '收合 －'}</button>
+                            </div>
+                        </div>
+                        <div class="category-content ${isCollapsed ? 'hidden' : ''}">
+                            <table class="quote-table">
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2" width="5%">範圍</th>
+                                        <th rowspan="2" width="16%">工程項目</th>
+                                        <th rowspan="2" width="4%">單位</th>
+                                        <th rowspan="2" width="4%">數量</th>
+                                        <th rowspan="2" width="7%">單價</th>
+                                        <th rowspan="2" width="9%">金額</th>
+                                        <th rowspan="2" width="14%">備註說明</th>
+                                        <th colspan="5" class="internal-col">成本</th>
+                                        <th rowspan="2" class="internal-col" width="5%">操作</th>
+                                    </tr>
+                                    <tr class="internal-col">
+                                        <th class="internal-th" width="6%">單價成本</th>
+                                        <th class="internal-th" width="4%">數量</th>
+                                        <th class="internal-th" width="4%">成數</th>
+                                        <th class="internal-th" width="11%">成本總價</th>
+                                        <th class="internal-th" width="11%">加成總和</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                            <div class="action-btns-row">
+                                <button class="btn-add">＋ 新增細項</button>
+                                <button class="btn-paste-excel">📋 從 Excel 貼上</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', blockHTML);
+
+                const sumRowHTML = `
+                    <tr id="sum-row-${index}">
+                        <td>${index + 1}</td>
+                        <td style="text-align: left; padding-left: 10px;">${catName}</td>
+                        <td><span class="sum-client-amount readonly-num" style="color: var(--brand-main) !important; font-size: 16px;">0</span></td>
+                        <td class="internal-col"><span class="sum-cost readonly-num">0</span></td>
+                        <td class="internal-col"><span class="sum-profit readonly-num" style="color: #27ae60 !important;">0</span></td>
+                        <td class="internal-col"><span class="sum-margin readonly-num">0.00</span></td>
+                        <td><textarea class="sum-remark" rows="1" placeholder="輸入總表備註..."></textarea></td>
+                    </tr>
+                `;
+                summaryTbody.insertAdjacentHTML('beforeend', sumRowHTML);
+            });
+        }
+
+        window.updateRowCalculations = function(row) {
+            const qty = parseFloat(row.querySelector('.qty').value) || 0;
+            const cost = parseFloat(row.querySelector('.cost').value) || 0;
+            const margin = parseFloat(row.querySelector('.margin').value) || 1;
+            
+            const internalCostTotal = Math.round(cost * qty);
+            const marginTotal = internalCostTotal * margin;
+            let clientAmount = marginTotal > 0 ? Math.ceil(marginTotal / 100) * 100 : 0;
+            const clientPrice = qty > 0 ? Math.round(clientAmount / qty) : 0;
+
+            row.querySelector('.client-price').textContent = clientPrice.toLocaleString();
+            row.querySelector('.cost-total-price').textContent = internalCostTotal.toLocaleString();
+            row.querySelector('.margin-total-price').textContent = marginTotal.toLocaleString();
+            row.querySelector('.client-amount').value = clientAmount;
+        }
+
+        window.calculateGrandTotals = function() {
+            let projectAmtClient = 0; let projectAmtCost = 0;   
+            document.querySelectorAll('.main-category').forEach((block, index) => {
+                let catClientTotal = 0; let catCostTotal = 0;
+                block.querySelectorAll('tbody tr').forEach(row => {
+                    catClientTotal += (parseFloat(row.querySelector('.client-amount').value) || 0);
+                    catCostTotal += (parseFloat(row.querySelector('.cost-total-price').textContent.replace(/,/g, '')) || 0);
+                });
+                block.querySelector('.category-subtotal').textContent = catClientTotal.toLocaleString();
+                projectAmtClient += catClientTotal; projectAmtCost += catCostTotal;
+
+                let catProfit = catClientTotal - catCostTotal;
+                let catMargin = catCostTotal > 0 ? (catClientTotal / catCostTotal).toFixed(2) : "-";
+
+                const sumRow = document.getElementById(`sum-row-${index}`);
+                sumRow.querySelector('.sum-client-amount').textContent = catClientTotal.toLocaleString();
+                sumRow.querySelector('.sum-cost').textContent = catCostTotal.toLocaleString();
+                sumRow.querySelector('.sum-profit').textContent = catProfit.toLocaleString();
+                sumRow.querySelector('.sum-margin').textContent = catMargin;
+            });
+
+            document.getElementById('sumProjectAmtClient').textContent = projectAmtClient.toLocaleString();
+            document.getElementById('sumProjectAmtCost').textContent = projectAmtCost.toLocaleString();
+            document.getElementById('sumProjectAmtProfit').textContent = (projectAmtClient - projectAmtCost).toLocaleString();
+            document.getElementById('sumProjectAmtMargin').textContent = projectAmtCost > 0 ? (projectAmtClient / projectAmtCost).toFixed(2) : "-";
+
+            const mgmtFeePct = parseFloat(document.getElementById('managementFeePct').value) || 0;
+            const mgmtFeeClient = Math.round(projectAmtClient * (mgmtFeePct / 100));
+            const mgmtFeeCost = 0; const mgmtFeeProfit = mgmtFeeClient - mgmtFeeCost;
+
+            document.getElementById('sumMgmtFeeClient').textContent = mgmtFeeClient.toLocaleString();
+            document.getElementById('sumMgmtFeeCost').textContent = mgmtFeeCost.toLocaleString();
+            document.getElementById('sumMgmtFeeProfit').textContent = mgmtFeeProfit.toLocaleString();
+
+            const subtotalClient = projectAmtClient + mgmtFeeClient;
+            const subtotalCost = projectAmtCost + mgmtFeeCost;
+            const subtotalProfit = subtotalClient - subtotalCost;
+            
+            document.getElementById('sumSubtotalClient').textContent = subtotalClient.toLocaleString();
+            document.getElementById('sumSubtotalCost').textContent = subtotalCost.toLocaleString();
+            document.getElementById('sumSubtotalProfit').textContent = subtotalProfit.toLocaleString();
+            document.getElementById('sumSubtotalMargin').textContent = subtotalCost > 0 ? (subtotalClient / subtotalCost).toFixed(2) : "-";
+
+            const taxPct = parseFloat(document.getElementById('taxPct').value) || 0;
+            const taxClient = Math.round(subtotalClient * (taxPct / 100));
+            const taxCost = taxClient; const taxProfit = 0;
+
+            document.getElementById('sumTaxClient').textContent = taxClient.toLocaleString();
+            document.getElementById('sumTaxCost').textContent = taxCost.toLocaleString();
+            document.getElementById('sumTaxProfit').textContent = taxProfit.toLocaleString();
+
+            const finalTotalClient = subtotalClient + taxClient;
+            const finalTotalCost = subtotalCost + taxCost;
+            const finalTotalProfit = finalTotalClient - finalTotalCost;
+
+            document.getElementById('sumFinalTotalClient').textContent = finalTotalClient.toLocaleString();
+            document.getElementById('sumFinalTotalCost').textContent = finalTotalCost.toLocaleString();
+            document.getElementById('sumFinalTotalProfit').textContent = finalTotalProfit.toLocaleString();
+            document.getElementById('sumFinalTotalMargin').textContent = finalTotalCost > 0 ? (finalTotalClient / finalTotalCost).toFixed(2) : "-";
+
+            document.getElementById('grandTotalText').textContent = finalTotalClient.toLocaleString();
+            document.getElementById('summaryGrandTotalText').textContent = finalTotalClient.toLocaleString();
+        }
+
+        // ================= 雲端讀取列表 =================
+        async function fetchProjectsFromCloud() {
+            const grid = document.getElementById('projectGrid');
+            grid.innerHTML = '<p style="color: #7f8c8d; font-weight: bold;">正在連線雲端資料庫，請稍候...</p>';
+            pastProjectsDB = [];
+            
+            try {
+                const projects = await getCloudProjects();
+                grid.innerHTML = '';
+
+                if (projects.length === 0) {
+                    grid.innerHTML = '<p style="color: #7f8c8d;">目前雲端還沒有案場，點擊上方「＋ 新增案場」或「📂 匯入舊版 Excel」開始吧！</p>';
+                    return;
+                }
+
+                projects.forEach((data) => {
+                    const card = document.createElement('div');
+                    card.className = 'project-card';
+                    card.innerHTML = `
+                        <h3>📁 ${data.projectName || '未命名案場'}</h3>
+                        <p>客戶：${data.clientName || '未填寫'}</p>
+                        <p>日期：${data.docDate || '無'}</p>
+                        <p style="font-weight:bold; color:var(--brand-main);">總額：NT$ ${Number(data.grandTotal).toLocaleString()}</p>
+                        <button class="del-project-btn" data-id="${data.id}">刪除</button>
+                    `;
+                    card.addEventListener('click', (e) => {
+                        if(e.target.classList.contains('del-project-btn')) return; 
+                        loadProjectToEditor(data.id, data);
+                    });
+                    
+                    card.querySelector('.del-project-btn').addEventListener('click', async () => {
+                        if(confirm('確定要從雲端刪除這個案場嗎？此動作無法復原！')) {
+                            loading.style.display = 'flex';
+                            loadingText.innerText = '正在刪除雲端資料...';
+                            await deleteProjectFromCloud(data.id);
+                            await fetchProjectsFromCloud(); 
+                            loading.style.display = 'none';
+                        }
+                    });
+                    grid.appendChild(card);
+
+                    if(data.items && data.items.length > 0) {
+                        data.items.forEach(item => {
+                            if(item.name) {
+                                pastProjectsDB.push({ name: data.projectName, date: data.docDate, item: item.name, unit: item.unit, cost: item.cost, margin: item.margin, remark: item.remark });
+                            }
+                        });
+                    }
+                });
+            } catch (error) {
+                console.error("載入資料失敗:", error);
+                grid.innerHTML = '<p style="color: red;">載入資料失敗，請確認您的網路連線或 Firebase 權限設定。</p>';
+            }
+        }
+
+        // ================= 匯入舊版 Excel =================
+        const importOldExcelInput = document.getElementById('importOldExcelInput');
+        document.getElementById('btnImportOldExcel').addEventListener('click', () => importOldExcelInput.click() );
+
+        importOldExcelInput.addEventListener('change', async (e) => {
+            const files = e.target.files;
+            if (!files || files.length === 0) return;
+            
+            loading.style.display = 'flex';
+            loadingText.innerText = '正在解析 Excel 資料並上傳至雲端庫...';
+
+            let addedCount = 0;
+
+            for (let file of files) {
+                try {
+                    const dataArray = await readExcelFile(file);
+                    const newProject = parseOldExcelToProject(dataArray, file.name);
+                    if (newProject.items.length > 0) {
+                        await saveProjectToCloud(newProject);
+                        addedCount++;
+                    }
+                } catch(err) {
+                    console.error("解析或上傳失敗: " + file.name, err);
+                }
+            }
+
+            if (addedCount > 0) {
+                await fetchProjectsFromCloud(); 
+                alert(`✅ 成功匯入並上傳 ${addedCount} 份報價單至雲端！\n系統已自動將裡面的價格與細項加入 AI 記憶庫中。`);
+            } else {
+                alert("❌ 找不到符合格式的報價資料，請確認是否為標準的工程報價單格式。");
+            }
+            loading.style.display = 'none';
+            importOldExcelInput.value = '';
+        });
+
+        function readExcelFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, {type: 'array'});
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const json = XLSX.utils.sheet_to_json(worksheet, {header: 1}); 
+                        resolve(json);
+                    } catch (err) { reject(err); }
+                };
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function parseOldExcelToProject(dataArray, fileName) {
+            let project = {
+                id: 'proj_' + Date.now() + Math.floor(Math.random()*1000),
+                docDate: new Date().toISOString().slice(0, 10),
+                clientName: '', clientPhone: '',
+                projectName: fileName.replace(/\.[^/.]+$/, ""),
+                designerName: '川互設計師', designerPhone: '0989-896-296',
+                companyPhone: '(03)-360-4255', companyId: '69503772',
+                projectAddress: '', companyAddress: '桃園市設計區創意路1號',
+                mgmtFeePct: 8, taxPct: 5,
+                items: [], summaryRemarks: [], grandTotal: 0
+            };
+
+            let currentCatIndex = 13; 
+
+            for (let i = 0; i < dataArray.length; i++) {
+                let row = dataArray[i];
+                if (!row || row.length === 0) continue;
+
+                let rowStr = row.map(cell => String(cell || '')).join('');
+
+                if (rowStr.includes('客戶姓名')) {
+                    row.forEach(cell => {
+                        let text = String(cell || '');
+                        if (text.includes('客戶姓名')) {
+                            let namePart = text.split('/').find(p => p.includes('客戶姓名'));
+                            if (namePart) project.clientName = namePart.replace(/客戶姓名\s*[:：]?\s*/, '').trim();
+                        }
+                    });
+                }
+                if (rowStr.includes('案件名稱')) {
+                    row.forEach(cell => {
+                        let text = String(cell || '');
+                        if (text.includes('案件名稱')) {
+                            let namePart = text.split('/').find(p => p.includes('案件名稱'));
+                            if (namePart) project.projectName = namePart.replace(/案件名稱\s*[:：]?\s*/, '').trim();
+                        }
+                    });
+                }
+
+                let foundCatIdx = categories.findIndex(c => {
+                    let pureName = c.split('. ')[1].replace(/\s+/g, ''); 
+                    return rowStr.includes(pureName);
+                });
+                if (foundCatIdx !== -1) { currentCatIndex = foundCatIdx; continue; }
+
+                let itemName = row[2];
+                let itemQty = parseFloat(row[4]);
+                
+                if (itemName && typeof itemName === 'string' && itemName !== '工程項目' && !isNaN(itemQty)) {
+                    let cost = parseFloat(row[14]) || 0; 
+                    let margin = parseFloat(row[15]) || 1.35; 
+                    let remark = String(row[7] || '').trim(); 
+                    
+                    let clientPrice = parseFloat(row[5]); 
+                    if (cost === 0 && !isNaN(clientPrice) && clientPrice > 0) {
+                        cost = Math.round(clientPrice / margin);
+                    }
+
+                    project.items.push({
+                        catIndex: currentCatIndex,
+                        range: String(row[0] || '').trim(),
+                        name: itemName.trim(),
+                        unit: String(row[3] || '式').trim(),
+                        qty: itemQty,
+                        cost: cost,
+                        margin: margin,
+                        remark: remark,
+                        amount: 0 
+                    });
+                }
+            }
+            return project;
+        }
+
+        // ================= ★ PDF 終極安全輸出模式 ★ =================
+        document.getElementById('btnExportPDF').addEventListener('click', () => {
+            const wasInternalVisible = isInternalVisible;
+            if (wasInternalVisible) {
+                document.getElementById('toggleBtn').click();
+            }
+
+            loading.style.display = 'flex';
+            loadingText.innerText = '正在準備 PDF 版面，請稍候...';
+
+            const categoriesState = [];
+            document.querySelectorAll('.category-block').forEach((block) => {
+                const content = block.querySelector('.category-content');
+                const btn = block.querySelector('.btn-collapse');
+                if (content) {
+                    const isHidden = content.classList.contains('hidden');
+                    categoriesState.push({ content, btn, isHidden });
+                    
+                    if (isHidden) {
+                        content.classList.remove('hidden');
+                        if (btn) btn.textContent = '收合 －';
+                    }
+                }
+            });
+
+            document.querySelectorAll('#pdf-export-area textarea').forEach(el => {
+                const div = document.createElement('div');
+                div.className = 'pdf-textarea-replacement';
+                div.innerHTML = el.value.replace(/\n/g, '<br>');
+                el.parentNode.insertBefore(div, el);
+                el.style.display = 'none'; 
+            });
+            
+            document.querySelectorAll('#pdf-export-area input').forEach(el => {
+                 el.setAttribute('value', el.value); 
+            });
+
+            document.body.classList.add('exporting-pdf');
+            window.scrollTo(0, 0); 
+
+            setTimeout(() => {
+                loadingText.innerText = '正在轉存為 PDF 檔案...';
+                
+                const element = document.getElementById('pdf-export-area');
+                const projectName = document.getElementById('projectName').value || "未命名案場";
+                const opt = {
+                  margin:       [10, 10, 15, 10], 
+                  filename:     `川互設計_報價單_${projectName}.pdf`,
+                  image:        { type: 'jpeg', quality: 1 },
+                  html2canvas:  { scale: 2, useCORS: true, windowWidth: 1000, scrollX: 0, scrollY: 0 }, 
+                  jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                  pagebreak:    { mode: ['css', 'legacy'], avoid: ['tr', 'h2', '.summary-block'] } 
+                };
+
+                html2pdf().set(opt).from(element).save().then(() => {
+                    document.body.classList.remove('exporting-pdf');
+                    
+                    document.querySelectorAll('.pdf-textarea-replacement').forEach(div => div.remove());
+                    document.querySelectorAll('#pdf-export-area textarea').forEach(el => el.style.display = '');
+
+                    categoriesState.forEach(state => {
+                        if (state.isHidden) {
+                            state.content.classList.add('hidden');
+                            if (state.btn) state.btn.textContent = '展開 ＋';
+                        }
+                    });
+
+                    if(wasInternalVisible) {
+                        document.getElementById('toggleBtn').click(); 
+                    }
+                    loading.style.display = 'none';
+                }).catch(err => {
+                    console.error("PDF產生錯誤:", err);
+                    alert("PDF 產生失敗，請再試一次！");
+                    document.body.classList.remove('exporting-pdf');
+                    loading.style.display = 'none';
+                });
+            }, 800); 
+        });
+
+        // ================= 雲端備份與還原 =================
+        document.getElementById('btnExportBackup').addEventListener('click', async () => {
+            loading.style.display = 'flex';
+            loadingText.innerText = '正在從雲端打包資料...';
+            try {
+                const allData = await getCloudProjects();
+                if (allData.length === 0) { alert("雲端目前沒有資料可以備份喔！"); loading.style.display = 'none'; return; }
+                const dataStr = JSON.stringify(allData, null, 2);
+                const blob = new Blob([dataStr], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const today = new Date().toISOString().slice(0, 10);
+                a.download = `川互設計_雲端備份_${today}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                alert(`✅ 成功備份 ${allData.length} 筆案場資料！\n檔案已下載至您的電腦。`);
+            } catch (err) {
+                console.error("備份失敗:", err);
+                alert("備份失敗，請確認網路連線。");
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+
+        const importInput = document.getElementById('importFileInput');
+        document.getElementById('btnImportBackup').addEventListener('click', () => { importInput.click(); });
+        importInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const importedData = JSON.parse(event.target.result);
+                    if (!Array.isArray(importedData)) { alert("檔案格式錯誤！"); return; }
+                    if (!confirm(`系統偵測到 ${importedData.length} 筆案場資料。\n\n請問確定要還原到雲端嗎？（這將會覆蓋同名案場）`)) { importInput.value = ''; return; }
+                    
+                    loading.style.display = 'flex';
+                    loadingText.innerText = '正在將資料上傳還原至雲端...';
+                    
+                    for (const project of importedData) {
+                        await saveProjectToCloud(project);
+                    }
+                    
+                    alert("✅ 系統還原成功！資料已上傳至雲端。");
+                    await fetchProjectsFromCloud(); 
+                } catch (error) { 
+                    console.error(error);
+                    alert("匯入失敗，請確認檔案格式是否正確或損毀。"); 
+                } finally {
+                    loading.style.display = 'none';
+                    importInput.value = ''; 
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // ================= 從 Excel 智慧貼上模組 =================
+        const pasteModal = document.getElementById('pasteModal');
+        const pasteArea = document.getElementById('pasteArea');
+
+        function openPasteModal(tbodyElement) {
+            currentPasteTbody = tbodyElement;
+            pasteArea.value = '';
+            pasteModal.style.display = 'flex';
+            setTimeout(() => pasteArea.focus(), 100);
+        }
+
+        document.getElementById('btnCancelPaste').addEventListener('click', () => {
+            pasteModal.style.display = 'none';
+            currentPasteTbody = null;
+        });
+
+        document.getElementById('btnConfirmPaste').addEventListener('click', () => {
+            const text = pasteArea.value;
+            if (!text.trim() || !currentPasteTbody) {
+                pasteModal.style.display = 'none';
+                return;
+            }
+
+            const lines = text.split(/\r?\n/);
+            lines.forEach(line => {
+                if (!line.trim()) return;
+                const cols = line.split('\t'); 
+                
+                if (cols.includes('工程項目') || cols.includes('單價成本') || cols.includes('加成總和')) return;
+                if (cols.length < 3 && !cols[0]) return;
+
+                let offset = 0;
+                if ((cols[1] && ['式','坪','尺','組','m','m2','才'].includes(cols[1].trim())) || (!isNaN(parseFloat(cols[2])) && isNaN(parseFloat(cols[4])))) {
+                    offset = -2; 
+                }
+
+                const getCol = (letter) => {
+                    const map = { 'A':0, 'B':1, 'C':2, 'D':3, 'E':4, 'F':5, 'G':6, 'H':7, 'I':8, 'J':9, 'K':10, 'L':11, 'M':12, 'N':13, 'O':14, 'P':15, 'Q':16 };
+                    let idx = map[letter] + offset;
+                    return (idx >= 0 && idx < cols.length && cols[idx]) ? cols[idx].trim() : '';
+                };
+
+                let range = getCol('A');
+                let name = getCol('C');
+                let unit = getCol('D') || '式';
+                let qty = parseFloat(getCol('E')) || 1;
+                let remark = getCol('H');
+                
+                let rawCost = parseFloat(getCol('O'));
+                let rawMargin = parseFloat(getCol('P'));
+                let cost = isNaN(rawCost) ? 0 : rawCost;
+                let margin = isNaN(rawMargin) ? 1.35 : rawMargin;
+
+                if (cost === 0) {
+                    let clientPrice = parseFloat(getCol('F')) || 0;
+                    if (clientPrice > 0) cost = Math.round(clientPrice / margin);
+                }
+
+                if (!name) return; 
+
+                const newRow = document.createElement('tr');
+                newRow.innerHTML = `
+                    <td><input type="text" value="${range}"></td>
+                    <td class="autocomplete-container"><input type="text" class="item-name" value="${name}"></td>
+                    <td><input type="text" class="unit" value="${unit}"></td>
+                    <td><input type="number" class="qty" value="${qty}" min="0.1" step="0.1"></td>
+                    <td><span class="client-price readonly-num">0</span></td>
+                    <td><input type="number" class="client-amount" value="0"></td>
+                    <td><textarea class="remark" rows="1">${remark}</textarea></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="cost" value="${cost}"></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="internal-qty" value="${qty}" min="0.1" step="0.1"></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="margin" value="${margin}" step="0.01"></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><span class="cost-total-price cost-total-text">0</span></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><span class="margin-total-price margin-total-text">0</span></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><button class="btn-delete">刪除</button></td>
+                `;
+                currentPasteTbody.appendChild(newRow);
+                window.updateRowCalculations(newRow);
+            });
+
+            window.calculateGrandTotals();
+            setDirty(); 
+            resizeAllTextareas(); 
+            pasteModal.style.display = 'none';
+        });
+
+        // ================= 載入與儲存編輯器 =================
+        function loadProjectToEditor(docId, data) {
+            clearDirty(); 
+            currentDocId = docId;
+            document.getElementById('currentDocIdDisplay').textContent = data.projectName || '未命名案場';
+            
+            document.getElementById('docDate').value = data.docDate || '';
+            document.getElementById('clientName').value = data.clientName || '';
+            document.getElementById('clientPhone').value = data.clientPhone || '';
+            document.getElementById('projectName').value = data.projectName || '';
+            document.getElementById('designerName').value = data.designerName || '川互設計師';
+            document.getElementById('designerPhone').value = data.designerPhone || '0989-896-296';
+            document.getElementById('companyPhone').value = data.companyPhone || '(03)-360-4255';
+            document.getElementById('companyId').value = data.companyId || '69503772';
+            document.getElementById('projectAddress').value = data.projectAddress || '';
+            document.getElementById('companyAddress').value = data.companyAddress || '桃園市設計區創意路1號';
+            
+            document.getElementById('managementFeePct').value = data.mgmtFeePct || 8;
+            document.getElementById('mgmtFeeRemark').value = data.mgmtFeeRemark || '';
+            document.getElementById('taxPct').value = data.taxPct || 5;
+            document.getElementById('taxRemark').value = data.taxRemark || '';
+
+            initTables();
+
+            if(data.summaryRemarks) {
+                data.summaryRemarks.forEach(rem => {
+                    const row = document.getElementById(`sum-row-${rem.index}`);
+                    if(row) row.querySelector('.sum-remark').value = rem.text;
+                });
+            }
+
+            if (data.items) {
+                data.items.forEach(item => {
+                    const block = document.querySelector(`.main-category[data-index="${item.catIndex}"]`);
+                    if(block) {
+                        const tbody = block.querySelector('tbody');
+                        const newRow = document.createElement('tr');
+                        newRow.innerHTML = `
+                            <td><input type="text" value="${item.range}"></td>
+                            <td class="autocomplete-container"><input type="text" class="item-name" value="${item.name}"></td>
+                            <td><input type="text" class="unit" value="${item.unit}"></td>
+                            <td><input type="number" class="qty" value="${item.qty}" min="0.1" step="0.1"></td>
+                            <td><span class="client-price readonly-num">0</span></td>
+                            <td><input type="number" class="client-amount" value="${item.amount}"></td>
+                            <td><textarea class="remark" rows="1">${item.remark}</textarea></td>
+                            <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="cost" value="${item.cost}"></td>
+                            <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="internal-qty" value="${item.qty}" min="0.1" step="0.1"></td>
+                            <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="margin" value="${item.margin}" step="0.01"></td>
+                            <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><span class="cost-total-price cost-total-text">0</span></td>
+                            <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><span class="margin-total-price margin-total-text">0</span></td>
+                            <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><button class="btn-delete">刪除</button></td>
+                        `;
+                        tbody.appendChild(newRow);
+                        window.updateRowCalculations(newRow);
+                    }
+                });
+            }
+
+            document.getElementById('page-dashboard').classList.remove('active');
+            document.getElementById('page-quotation').classList.add('active');
+            
+            const internalElements = document.querySelectorAll('.internal-col, .bulk-margin-group');
+            internalElements.forEach(el => {
+                if (isInternalVisible) el.classList.remove('hidden');
+                else el.classList.add('hidden');
+            });
+            window.calculateGrandTotals();
+            
+            setTimeout(resizeAllTextareas, 100);
+        }
+
+        document.getElementById('btnSaveToCloud').addEventListener('click', async () => {
+            const projectData = {
+                id: currentDocId || 'proj_' + Date.now(),
+                docDate: document.getElementById('docDate').value,
+                clientName: document.getElementById('clientName').value,
+                clientPhone: document.getElementById('clientPhone').value,
+                projectName: document.getElementById('projectName').value,
+                designerName: document.getElementById('designerName').value,
+                designerPhone: document.getElementById('designerPhone').value,
+                companyPhone: document.getElementById('companyPhone').value,
+                companyId: document.getElementById('companyId').value,
+                projectAddress: document.getElementById('projectAddress').value,
+                companyAddress: document.getElementById('companyAddress').value,
+                mgmtFeePct: parseFloat(document.getElementById('managementFeePct').value) || 0,
+                mgmtFeeRemark: document.getElementById('mgmtFeeRemark').value,
+                taxPct: parseFloat(document.getElementById('taxPct').value) || 0,
+                taxRemark: document.getElementById('taxRemark').value,
+                grandTotal: parseFloat(document.getElementById('grandTotalText').textContent.replace(/,/g, '')) || 0,
+                items: [],
+                summaryRemarks: []
+            };
+
+            document.querySelectorAll('#summaryTable tbody tr').forEach((row, index) => {
+                const rem = row.querySelector('.sum-remark').value;
+                if(rem) projectData.summaryRemarks.push({ index: index, text: rem });
+            });
+
+            document.querySelectorAll('.main-category').forEach((block, catIndex) => {
+                block.querySelectorAll('tbody tr').forEach(row => {
+                    const itemName = row.querySelector('.item-name').value.trim();
+                    if(itemName) {
+                        projectData.items.push({
+                            catIndex: catIndex,
+                            range: row.querySelector('td:nth-child(1) input').value,
+                            name: itemName,
+                            unit: row.querySelector('.unit').value,
+                            qty: parseFloat(row.querySelector('.qty').value) || 0,
+                            amount: parseFloat(row.querySelector('.client-amount').value) || 0,
+                            remark: row.querySelector('.remark').value,
+                            cost: parseFloat(row.querySelector('.cost').value) || 0,
+                            margin: parseFloat(row.querySelector('.margin').value) || 1
+                        });
+                    }
+                });
+            });
+
+            if (!currentDocId) {
+                currentDocId = projectData.id;
+                document.getElementById('currentDocIdDisplay').textContent = projectData.projectName || '未命名案場';
+            }
+
+            loading.style.display = 'flex';
+            loadingText.innerText = '正在安全儲存至雲端...';
+
+            try {
+                await saveProjectToCloud(projectData);
+                clearDirty(); 
+                alert("✅ 案場儲存成功！資料已同步至雲端資料庫。");
+            } catch (error) {
+                console.error("雲端儲存失敗:", error);
+                alert("❌ 儲存失敗，請檢查網路連線。");
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+
+        // ================= UI 互動事件監聽 =================
+        document.getElementById('btnGoToNewProject').addEventListener('click', () => {
+            currentDocId = null;
+            clearDirty();
+            document.getElementById('currentDocIdDisplay').textContent = '新案場';
+            document.getElementById('docDate').valueAsDate = new Date();
+            document.getElementById('clientName').value = '';
+            document.getElementById('clientPhone').value = '';
+            document.getElementById('projectName').value = '';
+            document.getElementById('projectAddress').value = '';
+            document.getElementById('managementFeePct').value = 8;
+            document.getElementById('mgmtFeeRemark').value = '';
+            document.getElementById('taxPct').value = 5;
+            document.getElementById('taxRemark').value = '';
+
+            initTables();
+            window.calculateGrandTotals();
+
+            document.getElementById('page-dashboard').classList.remove('active');
+            document.getElementById('page-quotation').classList.add('active');
+        });
+
+        document.getElementById('btnBackToDashboard').addEventListener('click', async () => {
+            if (isDirty) {
+                if (!confirm("⚠️ 您有未儲存的變更！\n確定要放棄編輯並返回首頁嗎？")) return;
+            }
+            document.getElementById('page-quotation').classList.remove('active');
+            document.getElementById('page-dashboard').classList.add('active');
+            await fetchProjectsFromCloud();
+        });
+
+        const toggleBtn = document.getElementById('toggleBtn');
+        toggleBtn.addEventListener('click', () => {
+            isInternalVisible = !isInternalVisible;
+            document.querySelectorAll('.internal-col, .bulk-margin-group').forEach(el => {
+                if (isInternalVisible) el.classList.remove('hidden');
+                else el.classList.add('hidden');
+            });
+            toggleBtn.textContent = isInternalVisible ? '隱藏內部成本 (切換為客戶版)' : '顯示內部成本 (切換為內部版)';
+            toggleBtn.classList.toggle('client-mode', !isInternalVisible);
+        });
+
+        function closeAllLists() { document.querySelectorAll('.autocomplete-list').forEach(list => list.remove()); }
+        document.addEventListener("click", (e) => { if (!e.target.classList.contains('item-name')) closeAllLists(); });
+
+        document.getElementById('page-quotation').addEventListener('click', (e) => {
+            if (e.target.classList.contains('btn-collapse') || (e.target.closest('.category-header') && !e.target.classList.contains('btn-add') && !e.target.closest('.summary-block') && !e.target.closest('.bulk-margin-group') && !e.target.classList.contains('btn-paste-excel'))) {
+                const block = e.target.closest('.category-block');
+                const content = block.querySelector('.category-content');
+                content.classList.toggle('hidden');
+                block.querySelector('.btn-collapse').textContent = content.classList.contains('hidden') ? '展開 ＋' : '收合 －';
+            }
+
+            if (e.target.classList.contains('btn-bulk-margin')) {
+                const block = e.target.closest('.category-block');
+                const bulkMarginValue = parseFloat(block.querySelector('.bulk-margin-input').value) || 1;
+                block.querySelectorAll('tbody tr').forEach(row => {
+                    row.querySelector('.margin').value = bulkMarginValue.toFixed(2);
+                    window.updateRowCalculations(row);
+                });
+                window.calculateGrandTotals();
+                setDirty();
+            }
+
+            if (e.target.classList.contains('btn-paste-excel')) {
+                const tbody = e.target.closest('.category-block').querySelector('tbody');
+                openPasteModal(tbody);
+            }
+
+            if (e.target.classList.contains('btn-add')) {
+                const tbody = e.target.closest('.category-block').querySelector('tbody');
+                const newRow = document.createElement('tr');
+                newRow.innerHTML = `
+                    <td><input type="text" placeholder="範圍"></td>
+                    <td class="autocomplete-container"><input type="text" class="item-name" placeholder="輸入關鍵字..."></td>
+                    <td><input type="text" class="unit" value="式"></td>
+                    <td><input type="number" class="qty" value="1" min="0.1" step="0.1"></td>
+                    <td><span class="client-price readonly-num">0</span></td>
+                    <td><input type="number" class="client-amount" value="0"></td>
+                    <td><textarea class="remark" rows="1" placeholder="備註"></textarea></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="cost" value="0"></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="internal-qty" value="1" min="0.1" step="0.1"></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><input type="number" class="margin" value="1.35" step="0.01"></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><span class="cost-total-price cost-total-text">0</span></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><span class="margin-total-price margin-total-text">0</span></td>
+                    <td class="internal-col ${isInternalVisible ? '' : 'hidden'}"><button class="btn-delete">刪除</button></td>
+                `;
+                tbody.appendChild(newRow);
+                window.updateRowCalculations(newRow);
+                window.calculateGrandTotals();
+                setDirty();
+            }
+
+            if (e.target.classList.contains('btn-delete')) {
+                e.target.closest('tr').remove();
+                window.calculateGrandTotals();
+                setDirty();
+            }
+        });
+
+        document.getElementById('page-quotation').addEventListener('input', (e) => {
+            setDirty(); 
+
+            if (e.target.id === 'managementFeePct' || e.target.id === 'taxPct') {
+                window.calculateGrandTotals(); return;
+            }
+
+            if (e.target.classList.contains('item-name')) {
+                const val = e.target.value.trim();
+                closeAllLists();
+                if (!val) return;
+                
+                const uniqueMatches = [];
+                const seen = new Set();
+                pastProjectsDB.filter(record => record.item.includes(val)).forEach(match => {
+                    const key = match.item + match.cost + match.margin;
+                    if(!seen.has(key)) { seen.add(key); uniqueMatches.push(match); }
+                });
+
+                if (uniqueMatches.length === 0) return;
+                const list = document.createElement("div");
+                list.setAttribute("class", "autocomplete-list");
+                e.target.parentNode.appendChild(list);
+                
+                uniqueMatches.forEach(match => {
+                    const itemDiv = document.createElement("div");
+                    itemDiv.setAttribute("class", "autocomplete-item");
+                    const dateDisplay = match.date || '無日期';
+                    itemDiv.innerHTML = `<strong>${match.item}</strong><br><small>📁 <span class="highlight-project">${match.name}</span> (${dateDisplay}) ｜ 成本：${match.cost} / 成數：${match.margin}</small>`;
+                    itemDiv.addEventListener("click", function() {
+                        const row = e.target.closest('tr');
+                        row.querySelector('.item-name').value = match.item;
+                        row.querySelector('.unit').value = match.unit;
+                        row.querySelector('.cost').value = match.cost;
+                        row.querySelector('.margin').value = match.margin;
+                        
+                        const remarkField = row.querySelector('.remark');
+                        remarkField.value = match.remark;
+                        remarkField.style.height = 'auto'; 
+                        remarkField.style.height = remarkField.scrollHeight + 'px';
+                        
+                        closeAllLists();
+                        window.updateRowCalculations(row);
+                        window.calculateGrandTotals();
+                    });
+                    list.appendChild(itemDiv);
+                });
+            }
+
+            if (e.target.tagName === 'INPUT' && !e.target.classList.contains('item-name') && e.target.closest('tbody')) {
+                const row = e.target.closest('tr');
+                if (e.target.classList.contains('qty')) row.querySelector('.internal-qty').value = e.target.value;
+                else if (e.target.classList.contains('internal-qty')) row.querySelector('.qty').value = e.target.value;
+
+                if (e.target.classList.contains('client-amount')) {
+                    const amount = parseFloat(e.target.value) || 0;
+                    const qty = parseFloat(row.querySelector('.qty').value) || 1;
+                    const cost = parseFloat(row.querySelector('.cost').value) || 0;
+                    
+                    const newClientPrice = qty > 0 ? Math.round(amount / qty) : 0;
+                    row.querySelector('.client-price').textContent = newClientPrice.toLocaleString();
+                    
+                    const internalCostTotal = Math.round(cost * qty);
+                    if (internalCostTotal > 0) {
+                        const newMargin = amount / internalCostTotal;
+                        row.querySelector('.margin').value = newMargin.toFixed(2);
+                    }
+                    row.querySelector('.margin-total-price').textContent = amount.toLocaleString();
+                    window.calculateGrandTotals();
+                } else {
+                    window.updateRowCalculations(row);
+                    window.calculateGrandTotals();
+                }
+            }
+        });
+
+        initTables();
+        
+        // ================= 程式進入點：讀取雲端資料 =================
+        fetchProjectsFromCloud();
+
+    </script>
+</body>
+</html>
